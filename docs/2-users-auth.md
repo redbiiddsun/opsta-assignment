@@ -5,7 +5,7 @@ Status: planned (not yet implemented). Owner module: `users`.
 The `users` module is the first business module. `links` and `analytics`
 depend on the authentication guard it exports, so it is built first.
 
-**Prerequisite:** [setup-infrastructure.md](setup-infrastructure.md) —
+**Prerequisite:** [1-setup-infrastructure.md](1-setup-infrastructure.md) —
 PostgreSQL, Prisma, Docker, env config, error filter, validation pipe, Swagger.
 
 ## Decisions on conflicting guidance
@@ -223,7 +223,7 @@ Unknown fields → 400 (`forbidNonWhitelisted`).
 
 ## 11. Implementation order
 
-1. Complete [setup-infrastructure.md](setup-infrastructure.md) steps 1–5.
+1. Complete [1-setup-infrastructure.md](1-setup-infrastructure.md) steps 1–5.
 2. Add `User` model + `init_users` migration.
 3. Domain → application (+ unit tests) → infrastructure → interfaces.
 4. Integration + E2E tests; Swagger decorators; README auth section.

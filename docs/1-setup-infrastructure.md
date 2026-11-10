@@ -1,16 +1,16 @@
 # Setup & Infrastructure — Implementation Plan
 
-Status: planned (not yet implemented).
+Status: steps 1–5 implemented; step 6 (Dockerfile + `app` service) pending.
 
 This covers the platform pieces every module depends on: PostgreSQL, Prisma,
 Docker, environment config, and the shared app wiring. It must land before
-any business module (see [users-auth.md](users-auth.md)).
+any business module (see [2-users-auth.md](2-users-auth.md)).
 
 ## 1. Dependencies
 
 | Package | Why |
 |---------|-----|
-| `prisma` (dev), `@prisma/client` | ORM (stack) |
+| `prisma`, `@prisma/client`, `@prisma/adapter-pg` | ORM (stack). Prisma 7 needs a driver adapter; `pg` comes with it. `prisma` (CLI) is a runtime dependency: the container runs `prisma migrate deploy` and `postinstall` runs `prisma generate`, both of which must work after `npm ci --omit=dev` |
 | `@nestjs/config` | Env loading + validation |
 | `class-validator`, `class-transformer` | DTO validation (stack) |
 | `@nestjs/swagger` | API docs (required) |
@@ -19,19 +19,28 @@ any business module (see [users-auth.md](users-auth.md)).
 Package manager is **npm** (repo has `package-lock.json`; AGENTS.md says npm,
 overriding the conventions skill's pnpm).
 
+Versions are pinned to the Nest 11 line (`@nestjs/config@4`, `@nestjs/swagger@11`);
+the newest majors require Nest 12. Prisma is pinned to stable 7.10.1 (npm's
+`latest` tag currently points at an 8.0 RC). npm's `allowScripts` approves
+Prisma's install scripts; `@scarf/scarf` telemetry is denied.
+
 ## 2. TypeScript
 
-Enable `strict: true` in `tsconfig.json` (AGENTS.md §12). It currently has
-`noImplicitAny: false` and `strictBindCallApply: false`; remove those overrides.
+`strict: true` in `tsconfig.json` (AGENTS.md §12); the scaffold's
+`noImplicitAny: false` / `strictBindCallApply: false` overrides are removed.
+`prisma.config.ts` is excluded from `tsconfig.build.json` so `dist/` keeps its layout.
 
 ## 3. PostgreSQL & Prisma
 
-- `prisma/schema.prisma` — `postgresql` datasource from `DATABASE_URL`.
-  Models are added by each owning module (e.g. `User` in users-auth).
+- `prisma/schema.prisma` — `prisma-client` generator (CJS, extensionless
+  imports) writing to `src/shared/database/generated/` (gitignored, created by
+  `postinstall`). Models are added by each owning module (e.g. `User` in users-auth).
+- `prisma.config.ts` — Prisma 7 config; holds `DATABASE_URL` and loads `.env`
+  with Node's `process.loadEnvFile()` (no dotenv dependency).
 - Migrations only: `prisma migrate dev` locally, `prisma migrate deploy` in
   containers. Never `prisma db push` as the deployment strategy.
-- `src/shared/database/prisma.service.ts` — extends `PrismaClient`,
-  `onModuleInit` → `$connect`.
+- `src/shared/database/prisma.service.ts` — extends `PrismaClient` with the
+  `PrismaPg` adapter; `$connect` on init, `$disconnect` on shutdown.
 - `src/shared/database/prisma.module.ts` — `@Global()`, exports `PrismaService`.
 - Prisma types never leave a module's `infrastructure/` layer.
 
@@ -48,6 +57,7 @@ Enable `strict: true` in `tsconfig.json` (AGENTS.md §12). It currently has
 | `JWT_EXPIRES_IN` | default `15m` | users |
 | `JWT_ISSUER` | required | users |
 | `JWT_AUDIENCE` | required | users |
+| `POSTGRES_USER` / `_PASSWORD` / `_DB` / `_PORT` | compose only; not read by the app | docker-compose |
 
 - `.env.example` — every variable above with placeholder values only.
 - `.env` stays gitignored. No secrets in the image or compose file.
@@ -57,16 +67,20 @@ Enable `strict: true` in `tsconfig.json` (AGENTS.md §12). It currently has
 - `src/shared/exceptions/application.error.ts` — `ApplicationError` base with
   `kind: 'conflict' | 'unauthorized' | 'forbidden' | 'not_found' | 'validation'`.
   Modules throw subclasses and never import HTTP types.
-- `src/shared/exceptions/http-exception.filter.ts` — global filter, maps `kind`
+- `src/shared/exceptions/all-exceptions.filter.ts` — global `@Catch()` filter, maps `kind`
   → HTTP status. Error shape is always `{ statusCode, error, message }`.
   Unknown errors become a generic 500 — no stack traces, no SQL/Prisma messages.
-- `src/main.ts`:
+- `src/shared/http/configure-app.ts` — `configureApp(app)`, called by
+  `main.ts` **and e2e tests** so tests hit the same routes as production:
   - `setGlobalPrefix('api/v1')` (the redirect route `/:shortCode` is excluded
     when `links` lands)
-  - global `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`
   - Swagger at `/api/docs` with a bearer auth scheme
-- `src/app.module.ts` — imports `ConfigModule`, `PrismaModule`,
-  `ThrottlerModule` (default limit; routes tighten with `@Throttle`).
+- `src/app.module.ts` — imports `ConfigModule` (global, validated),
+  `PrismaModule`, `ThrottlerModule` (100 req/min default; routes tighten with
+  `@Throttle`). Global providers via DI tokens, so e2e gets them automatically:
+  - `APP_PIPE` — `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`
+  - `APP_FILTER` — `AllExceptionsFilter`
+  - `APP_GUARD` — `ThrottlerGuard` (in-memory, per process)
 
 ## 6. Docker
 
@@ -94,6 +108,9 @@ run. `app` is added once the API is runnable end-to-end.
 - Run `prisma migrate deploy` against it before the test run; truncate tables
   between suites.
 
+Prisma 7 loads its WASM query compiler with a dynamic `import()`, which Jest
+only allows under `--experimental-vm-modules`; `test:e2e` sets it via `NODE_OPTIONS`.
+
 ## 8. Commands (to document in README)
 
 ```bash
@@ -102,7 +119,7 @@ docker compose up -d postgres      # start database
 npx prisma migrate dev             # apply migrations (dev)
 npm run start:dev                  # run API locally
 npm test                           # unit tests
-npm run test:e2e                   # e2e (needs postgres)
+npm run test:e2e                   # e2e (needs postgres + .env)
 docker compose up --build          # production-like startup (once app service exists)
 ```
 
