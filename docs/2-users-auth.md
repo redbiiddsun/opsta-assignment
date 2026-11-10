@@ -80,6 +80,7 @@ domain/
 application/
   contracts/password-hasher.ts        PasswordHasher { hash, verify } + token
   contracts/token-issuer.ts           TokenIssuer { issue(userId) } + token
+  contracts/token-verifier.ts         TokenVerifier { verify(token) → userId | null } + token
   models/credentials.ts               { email, password } use-case input
   models/access-token.ts              { accessToken, expiresIn }
   use-cases/register-user.use-case.ts
@@ -88,6 +89,7 @@ infrastructure/
   persistence/prisma-user.repository.ts   P2002 → EmailAlreadyRegisteredError; record → entity
   security/argon2-password-hasher.ts      argon2id, library defaults; dummy hash for null
   security/jwt-token-issuer.ts            signAsync({ sub }); options come from JwtModule
+  security/jwt-token-verifier.ts          verifyAsync → sub, any failure → null
 interfaces/http/
   controllers/auth.controller.ts          thin: DTO → use case → response DTO
   dto/credentials.request.ts
@@ -98,7 +100,7 @@ interfaces/http/
   guards/jwt-auth.guard.ts                public API for other modules
   decorators/current-user.decorator.ts    public API for other modules
 users.module.ts                           binds tokens → implementations; JwtModule holds
-                                          secret + issuer/audience/expiry; exports guard + JwtModule
+                                          secret + issuer/audience/expiry; exports guard + TOKEN_VERIFIER
 ```
 
 Contracts:
@@ -117,11 +119,16 @@ export interface PasswordHasher {
 export interface TokenIssuer {
   issue(userId: string): Promise<{ accessToken: string; expiresIn: string }>;
 }
+
+export interface TokenVerifier {
+  verify(accessToken: string): Promise<string | null>; // userId, or null for any invalid token
+}
 ```
 
-Why `PasswordHasher` and `TokenIssuer` are abstractions: they keep the use
-cases free of Argon2 and JWT, and unit tests can use fakes (AGENTS.md §3.2,
-§10). Use cases are plain classes (no Nest decorators), wired with
+Why `PasswordHasher`, `TokenIssuer` and `TokenVerifier` are abstractions: they keep the use
+cases and the guard free of Argon2 and JWT, and unit tests can use fakes (AGENTS.md §3.2,
+§10). Because the guard depends on `TokenVerifier`, `UsersModule` exports that
+token instead of `JwtModule`, so consumers never see that tokens are JWTs. Use cases are plain classes (no Nest decorators), wired with
 `useFactory` in `users.module.ts`.
 
 ## 5. Request flow
@@ -196,9 +203,10 @@ the `Email` value object's normalization only changes casing.
 ## 8. JwtAuthGuard (consumed by links / analytics)
 
 - Reads `Authorization: Bearer <token>`.
-- `JwtService.verifyAsync(token)`; secret, issuer and audience come from
+- Calls `TokenVerifier.verify(token)`. `JwtTokenVerifier` uses
+  `JwtService.verifyAsync`; secret, issuer and audience come from
   `JwtModule`'s `verifyOptions`, and expiry is checked by default.
-- Success: sets `request.user = { id: payload.sub }`.
+- Success: sets `request.user = { id: userId }`.
 - Any failure (missing, malformed, bad signature, expired, wrong iss/aud):
   **401** with a generic message.
 - `@CurrentUser()` gives controllers the `AuthenticatedUser` (`{ id }`).
@@ -225,8 +233,10 @@ the `Email` value object's normalization only changes casing.
   output has no hash
 - `LoginUseCase` — unknown email and wrong password give the same error;
   verify still runs for an unknown email; token issued on success
-- `JwtAuthGuard` — missing header, non-bearer scheme, empty and malformed
-  tokens; expired, wrong-audience, wrong-issuer and wrong-secret tokens; valid token
+- `JwtAuthGuard` (fake verifier) — missing header, non-bearer scheme, empty
+  token, rejected token; valid token sets `request.user`
+- `JwtTokenVerifier` — valid token returns `sub`; malformed, expired,
+  wrong-audience, wrong-issuer and wrong-secret tokens return `null`
 - `Argon2PasswordHasher` — argon2id round trip, wrong password, `null` hash
 - `validateEnvironment` — invalid `JWT_EXPIRES_IN`
 

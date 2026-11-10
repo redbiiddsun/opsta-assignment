@@ -1,19 +1,17 @@
 import {
   CanActivate,
   ExecutionContext,
+  Inject,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
+import { TOKEN_VERIFIER } from '../../../application/contracts/token-verifier';
+import type { TokenVerifier } from '../../../application/contracts/token-verifier';
 import { AuthenticatedRequest } from '../models/authenticated-request';
 
 const BEARER_SCHEME = 'Bearer';
 const UNAUTHORIZED_MESSAGE = 'Missing or invalid access token';
-
-interface AccessTokenPayload {
-  sub: string;
-}
 
 const readBearerToken = (request: Request): string | null => {
   const [scheme, token] = request.headers.authorization?.split(' ') ?? [];
@@ -21,10 +19,11 @@ const readBearerToken = (request: Request): string | null => {
 };
 
 // Stateless: trusts a valid signature and does not look the user up.
-// Issuer, audience and expiry are checked by JwtModule's verifyOptions.
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    @Inject(TOKEN_VERIFIER) private readonly tokenVerifier: TokenVerifier,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
@@ -33,17 +32,11 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException(UNAUTHORIZED_MESSAGE);
     }
 
-    const payload = await this.verify(token);
-    request.user = { id: payload.sub };
-    return true;
-  }
-
-  private async verify(token: string): Promise<AccessTokenPayload> {
-    try {
-      return await this.jwtService.verifyAsync<AccessTokenPayload>(token);
-    } catch {
-      // Every failure reason (signature, expiry, iss/aud) gets the same 401 on purpose.
+    const userId = await this.tokenVerifier.verify(token);
+    if (!userId) {
       throw new UnauthorizedException(UNAUTHORIZED_MESSAGE);
     }
+    request.user = { id: userId };
+    return true;
   }
 }

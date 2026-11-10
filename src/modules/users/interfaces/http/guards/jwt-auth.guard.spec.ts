@@ -1,17 +1,15 @@
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { TokenVerifier } from '../../../application/contracts/token-verifier';
 import { AuthenticatedRequest } from '../models/authenticated-request';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
-const SECRET = 'test-secret-with-at-least-32-characters';
-const ISSUER = 'test-issuer';
-const AUDIENCE = 'test-audience';
+const VALID_TOKEN = 'valid-token';
 
-const jwtService = new JwtService({
-  secret: SECRET,
-  signOptions: { issuer: ISSUER, audience: AUDIENCE, expiresIn: '15m' },
-  verifyOptions: { issuer: ISSUER, audience: AUDIENCE },
-});
+// Accepts only VALID_TOKEN; real JWT checks are covered by jwt-token-verifier.spec.ts.
+const fakeTokenVerifier: TokenVerifier = {
+  verify: (accessToken) =>
+    Promise.resolve(accessToken === VALID_TOKEN ? 'user-id' : null),
+};
 
 const createContext = (authorization?: string) => {
   const request = { headers: { authorization } } as AuthenticatedRequest;
@@ -22,12 +20,11 @@ const createContext = (authorization?: string) => {
 };
 
 describe('JwtAuthGuard', () => {
-  const guard = new JwtAuthGuard(jwtService);
+  const guard = new JwtAuthGuard(fakeTokenVerifier);
 
   it('Given a valid bearer token, when the guard runs, then it allows the request and sets the user id', async () => {
     // Given
-    const token = await jwtService.signAsync({ sub: 'user-id' });
-    const { request, context } = createContext(`Bearer ${token}`);
+    const { request, context } = createContext(`Bearer ${VALID_TOKEN}`);
 
     // When
     const isAllowed = await guard.canActivate(context);
@@ -39,33 +36,14 @@ describe('JwtAuthGuard', () => {
 
   it.each([
     ['a missing header', undefined],
-    ['a non-bearer scheme', 'Basic dXNlcjpwYXNz'],
+    ['a non-bearer scheme', `Basic ${VALID_TOKEN}`],
     ['an empty bearer token', 'Bearer '],
-    ['a malformed token', 'Bearer not-a-jwt'],
+    ['a token the verifier rejects', 'Bearer rejected-token'],
   ])(
     'Given %s, when the guard runs, then it rejects with 401',
     async (_case, authorization) => {
       // Given
       const { context } = createContext(authorization);
-
-      // When / Then
-      await expect(guard.canActivate(context)).rejects.toThrow(
-        UnauthorizedException,
-      );
-    },
-  );
-
-  it.each([
-    ['an expired token', { expiresIn: -1 }],
-    ['a wrong audience', { audience: 'other-audience' }],
-    ['a wrong issuer', { issuer: 'other-issuer' }],
-    ['a different signing secret', { secret: 'x'.repeat(32) }],
-  ])(
-    'Given %s, when the guard runs, then it rejects with 401',
-    async (_case, overrides) => {
-      // Given
-      const token = await jwtService.signAsync({ sub: 'user-id' }, overrides);
-      const { context } = createContext(`Bearer ${token}`);
 
       // When / Then
       await expect(guard.canActivate(context)).rejects.toThrow(

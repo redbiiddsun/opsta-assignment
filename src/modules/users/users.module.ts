@@ -10,6 +10,7 @@ import {
   TOKEN_ISSUER,
   TokenIssuer,
 } from './application/contracts/token-issuer';
+import { TOKEN_VERIFIER } from './application/contracts/token-verifier';
 import { LoginUseCase } from './application/use-cases/login.use-case';
 import { RegisterUserUseCase } from './application/use-cases/register-user.use-case';
 import {
@@ -19,6 +20,7 @@ import {
 import { PrismaUserRepository } from './infrastructure/persistence/prisma-user.repository';
 import { Argon2PasswordHasher } from './infrastructure/security/argon2-password-hasher';
 import { JwtTokenIssuer } from './infrastructure/security/jwt-token-issuer';
+import { JwtTokenVerifier } from './infrastructure/security/jwt-token-verifier';
 import { AuthController } from './interfaces/http/controllers/auth.controller';
 import { JwtAuthGuard } from './interfaces/http/guards/jwt-auth.guard';
 
@@ -52,6 +54,7 @@ const createJwtOptions = (
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: PASSWORD_HASHER, useClass: Argon2PasswordHasher },
     { provide: TOKEN_ISSUER, useClass: JwtTokenIssuer },
+    { provide: TOKEN_VERIFIER, useClass: JwtTokenVerifier },
     {
       provide: RegisterUserUseCase,
       inject: [USER_REPOSITORY, PASSWORD_HASHER],
@@ -71,8 +74,8 @@ const createJwtOptions = (
     },
     JwtAuthGuard,
   ],
-  // Other modules import UsersModule and use @UseGuards(JwtAuthGuard);
-  // the guard resolves JwtService in their injector, hence JwtModule here.
-  exports: [JwtAuthGuard, JwtModule],
+  // Other modules import UsersModule and use @UseGuards(JwtAuthGuard); the guard
+  // is resolved in their injector, so its TOKEN_VERIFIER dependency is exported too.
+  exports: [JwtAuthGuard, TOKEN_VERIFIER],
 })
 export class UsersModule {}
