@@ -1,0 +1,64 @@
+import { plainToInstance } from 'class-transformer';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsString,
+  Max,
+  Min,
+  MinLength,
+  validateSync,
+} from 'class-validator';
+
+const DEFAULT_PORT = 3000;
+const MAX_PORT = 65535;
+const DEFAULT_JWT_EXPIRES_IN = '15m';
+const MIN_JWT_SECRET_LENGTH = 32;
+
+export class EnvironmentVariables {
+  @IsInt()
+  @Min(1)
+  @Max(MAX_PORT)
+  PORT: number = DEFAULT_PORT;
+
+  @IsString()
+  @IsNotEmpty()
+  DATABASE_URL!: string;
+
+  @IsString()
+  @MinLength(MIN_JWT_SECRET_LENGTH)
+  JWT_SECRET!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  JWT_EXPIRES_IN: string = DEFAULT_JWT_EXPIRES_IN;
+
+  @IsString()
+  @IsNotEmpty()
+  JWT_ISSUER!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  JWT_AUDIENCE!: string;
+}
+
+// Messages name the variable and the rule, never the value, so secrets stay out of logs.
+export const validateEnvironment = (
+  rawEnvironment: Record<string, unknown>,
+): EnvironmentVariables => {
+  const environment = plainToInstance(EnvironmentVariables, rawEnvironment, {
+    enableImplicitConversion: true,
+    exposeDefaultValues: true,
+  });
+  const validationErrors = validateSync(environment);
+
+  if (validationErrors.length > 0) {
+    const problems = validationErrors
+      .flatMap((validationError) =>
+        Object.values(validationError.constraints ?? {}),
+      )
+      .join('; ');
+    throw new Error(`Invalid environment variables: ${problems}`);
+  }
+
+  return environment;
+};
