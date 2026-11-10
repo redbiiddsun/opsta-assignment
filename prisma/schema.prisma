@@ -1,0 +1,14 @@
+// Models are added by their owning module (e.g. User in the users module).
+// The connection URL lives in prisma.config.ts (Prisma 7).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/shared/database/generated"
+  moduleFormat        = "cjs"
+  // Extensionless imports resolve in both tsc (CJS) and Jest without a moduleNameMapper.
+  importFileExtension = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}
