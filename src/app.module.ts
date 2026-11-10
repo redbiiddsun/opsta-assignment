@@ -1,10 +1,36 @@
-import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { Module, ValidationPipe } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+
+import { validateEnvironment } from './shared/config/env.validation';
+import { PrismaModule } from './shared/database/prisma.module';
+import { AllExceptionsFilter } from './shared/exceptions/all-exceptions.filter';
+
+const THROTTLE_TTL_MS = 60_000;
+const THROTTLE_LIMIT_PER_TTL = 100;
 
 @Module({
-  imports: [],
-  controllers: [AppController],
-  providers: [AppService],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
+    // ponytail: in-memory throttle storage is per process; use a shared store if the API runs as multiple instances.
+    ThrottlerModule.forRoot([
+      { ttl: THROTTLE_TTL_MS, limit: THROTTLE_LIMIT_PER_TTL },
+    ]),
+    PrismaModule,
+  ],
+  controllers: [],
+  providers: [
+    {
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    },
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

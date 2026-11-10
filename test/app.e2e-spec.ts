@@ -3,9 +3,13 @@ import { HttpStatus, INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
-import { HELLO_MESSAGE } from './../src/app.service';
+import {
+  API_PREFIX,
+  configureApp,
+  SWAGGER_PATH,
+} from './../src/shared/http/configure-app';
 
-describe('AppController (e2e)', () => {
+describe('App infrastructure (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeEach(async () => {
@@ -14,20 +18,37 @@ describe('AppController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    configureApp(app);
     await app.init();
-  });
-
-  it('Given the app is running, when a client requests GET /, then it responds 200 with the hello message', () => {
-    // Given: app initialised in beforeEach
-
-    // When
-    const response = request(app.getHttpServer()).get('/');
-
-    // Then
-    return response.expect(HttpStatus.OK).expect(HELLO_MESSAGE);
   });
 
   afterEach(async () => {
     await app.close();
+  });
+
+  it('Given the app is running, when a client requests an unknown route, then it responds 404 with the shared error shape', async () => {
+    // When
+    const response = await request(app.getHttpServer()).get(
+      `/${API_PREFIX}/unknown-route`,
+    );
+
+    // Then
+    expect(response.status).toBe(HttpStatus.NOT_FOUND);
+    expect(response.body).toEqual({
+      statusCode: HttpStatus.NOT_FOUND,
+      error: 'Not Found',
+      message: `Cannot GET /${API_PREFIX}/unknown-route`,
+    });
+  });
+
+  it('Given the app is running, when a client requests the Swagger document, then it is served', async () => {
+    // When
+    const response = await request(app.getHttpServer()).get(
+      `/${SWAGGER_PATH}-json`,
+    );
+
+    // Then
+    expect(response.status).toBe(HttpStatus.OK);
+    expect(response.body).toHaveProperty('openapi');
   });
 });
