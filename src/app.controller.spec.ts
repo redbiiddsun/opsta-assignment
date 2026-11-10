@@ -15,6 +15,8 @@ describe('AppController', () => {
   });
 
   it('Given the app is running, when the root handler is called, then it returns the hello message', () => {
+    // Given: controller created in beforeEach
+
     // When
     const message = appController.getHello();
 

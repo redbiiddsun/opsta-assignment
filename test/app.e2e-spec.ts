@@ -18,10 +18,13 @@ describe('AppController (e2e)', () => {
   });
 
   it('Given the app is running, when a client requests GET /, then it responds 200 with the hello message', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(HttpStatus.OK)
-      .expect(HELLO_MESSAGE);
+    // Given: app initialised in beforeEach
+
+    // When
+    const response = request(app.getHttpServer()).get('/');
+
+    // Then
+    return response.expect(HttpStatus.OK).expect(HELLO_MESSAGE);
   });
 
   afterEach(async () => {

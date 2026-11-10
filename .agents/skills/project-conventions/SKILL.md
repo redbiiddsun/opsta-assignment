@@ -282,8 +282,6 @@ describe('CreateShortLinkUseCase', () => {
       // Then
     },
   );
-  it('Given a javascript: URL, when the user creates a link, then the link is rejected', async () => {});
-  it('Given a generated short code that already exists, when the link is created, then generation is retried', async () => {});
 });
 ```
 
