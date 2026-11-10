@@ -48,4 +48,18 @@ describe('validateEnvironment', () => {
       validateEnvironment({ ...validEnvironment, JWT_SECRET: shortSecret }),
     ).toThrow(/^(?!.*too-short-secret).*JWT_SECRET/);
   });
+
+  it('Given a JWT_EXPIRES_IN that is not a timespan, when validated, then it throws naming the variable', () => {
+    // When / Then
+    expect(() =>
+      validateEnvironment({ ...validEnvironment, JWT_EXPIRES_IN: 'soon' }),
+    ).toThrow(/JWT_EXPIRES_IN/);
+  });
+
+  it('Given a JWT_EXPIRES_IN without a unit, when validated, then it throws naming the variable', () => {
+    // When / Then
+    expect(() =>
+      validateEnvironment({ ...validEnvironment, JWT_EXPIRES_IN: '900' }),
+    ).toThrow(/JWT_EXPIRES_IN/);
+  });
 });
