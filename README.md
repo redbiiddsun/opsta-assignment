@@ -10,6 +10,7 @@ explicit business rules and tests over a long feature list.
 
 ## Contents
 
+- [Setup](#setup)
 - [Scope](#scope)
 - [Technology stack](#technology-stack)
 - [Architecture](#architecture)
@@ -17,13 +18,53 @@ explicit business rules and tests over a long feature list.
 - [Database schema](#database-schema)
 - [API](#api)
 - [Environment variables](#environment-variables)
-- [Local setup](#local-setup)
-- [Deploy on Dokploy](#deploy-on-dokploy)
 - [Migrations and seed data](#migrations-and-seed-data)
 - [Tests](#tests)
-- [Design decisions and trade-offs](#design-decisions-and-trade-offs)
-- [Known limitations](#known-limitations)
 - [AI-assisted development log](#ai-assisted-development-log)
+
+## Setup
+
+Prerequisites: Node.js 22+ and npm, Docker with Docker Compose v2.24+ (for optional `env_file` entries).
+
+For Docker Composse running applicaition ( API & Web Interface ):
+
+```bash
+docker compose up -d --build
+```
+
+From a Development Process checkout:
+
+```bash
+cp .env.example .env               # then set JWT_SECRET (≥ 32 chars) and the DB password
+
+npm ci
+
+docker compose up -d postgres      # PostgreSQL 17 with a healthcheck and a named volume
+
+npx prisma migrate deploy          # apply all migrations
+
+npx prisma generate                # generate the Prisma client into src/shared/database/generated
+
+npm run start:dev                  # API on http://localhost:3000, Swagger at /api/docs
+
+```
+
+Quick check API service:
+
+```bash
+curl -s -X POST localhost:{3000}/api/v1/auth/register \
+  -H 'content-type: application/json' \
+  -d '{"email":"me@example.com","password":"correct-password"}'
+TOKEN=$(curl -s -X POST localhost:3000/api/v1/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"email":"me@example.com","password":"correct-password"}' | jq -r .accessToken)
+curl -s -X POST localhost:3000/api/v1/links -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{"destinationUrl":"https://example.com"}'
+curl -i localhost:3000/<shortCode>   # 302
+```
+
+Stop everything with `docker compose down`. Add `-v` to also delete the
+database volume.
 
 ## Scope
 
@@ -279,140 +320,6 @@ to boot if one is invalid.
 
 `.env` is gitignored, and `.env.example` contains placeholders only.
 
-## Local setup
-
-Prerequisites: Node.js 22+ and npm, Docker with Docker Compose v2.24+ (for optional `env_file` entries).
-
-From a clean checkout:
-
-```bash
-cp .env.example .env               # then set JWT_SECRET (≥ 32 chars) and the DB password
-npm ci
-docker compose up -d postgres      # PostgreSQL 17 with a healthcheck and a named volume
-npx prisma migrate deploy          # apply all migrations
-npx prisma generate                # generate the Prisma client into src/shared/database/generated
-npm run start:dev                  # API on http://localhost:3000, Swagger at /api/docs
-```
-
-Keep the DB password URL-safe (letters, digits, `-`, `_`): it is embedded
-unescaped in `DATABASE_URL`, so `@ : / # %` would break the connection string.
-
-Production-like run, with the API in a container as well — **one command**
-from a fresh clone:
-
-```bash
-docker compose up --build          # postgres (healthcheck) → app: migrate deploy → node dist/main
-```
-
-With no `.env`, compose uses the placeholder values from `.env.example`, which
-are fine for a local demo only. For anything else, `cp .env.example .env`,
-set a real `JWT_SECRET` and a URL-safe DB password; `.env` overrides the
-defaults.
-
-- `app` waits for Postgres to report healthy. It then applies migrations
-  (`prisma migrate deploy`) and starts on `http://localhost:${PORT:-3000}`.
-  The `app` and `postgres` ports are bound to `127.0.0.1` only; other machines
-  reach the API through `web`, whose nginx sets `X-Forwarded-For` for the
-  rate limits.
-- App values come from `.env.example`, overridden by `.env` when it exists.
-  Compose itself sets two: `DATABASE_URL` points at the `postgres` service,
-  and `PORT` is fixed at `3000` inside the container. `PORT` in `.env` only
-  chooses the host port.
-- The image contains no secrets. `.dockerignore` keeps `.env` out of the
-  build context.
-- The runtime stage has production dependencies and `dist/` only, and runs
-  as the non-root `node` user.
-- `web` is a separate service (`web/`, SvelteKit built as a static SPA) on
-  `http://localhost:${WEB_PORT:-8080}`. Its nginx serves the SPA under
-  `/app/` and proxies everything else (`/api/*`, `GET /:shortCode`) to
-  `app`, so the browser talks to one origin and the API needs no CORS. The
-  SPA sits under `/app` because the redirect owns the root paths. FE and API
-  deploy and scale independently.
-
-Web app in dev mode (with the API running on port 3000):
-
-```bash
-cd web && npm ci && npm run dev    # http://localhost:5173/app/, /api proxied to :3000
-```
-
-Without Docker for the API:
-
-```bash
-npm run build
-npm run start:prod
-```
-
-Quick check:
-
-```bash
-curl -s -X POST localhost:3000/api/v1/auth/register \
-  -H 'content-type: application/json' \
-  -d '{"email":"me@example.com","password":"correct-password"}'
-TOKEN=$(curl -s -X POST localhost:3000/api/v1/auth/login \
-  -H 'content-type: application/json' \
-  -d '{"email":"me@example.com","password":"correct-password"}' | jq -r .accessToken)
-curl -s -X POST localhost:3000/api/v1/links -H "authorization: Bearer $TOKEN" \
-  -H 'content-type: application/json' -d '{"destinationUrl":"https://example.com"}'
-curl -i localhost:3000/<shortCode>   # 302
-```
-
-Stop everything with `docker compose down`. Add `-v` to also delete the
-database volume.
-
-## Deploy on Dokploy
-
-Everything Dokploy-specific lives in `docker/dokploy/`. Its
-`docker-compose.yml` builds the same images as the local one, but it
-publishes no host ports, so Traefik is the only way in. It also mounts
-`nginx-real-ip.conf` into `web`, so nginx takes the client IP from the
-`X-Forwarded-For` header Traefik sets. Without that, every visitor would
-share Traefik's rate limit.
-
-1. Create a project, then add a **Compose** service of type _Docker Compose_
-   that points at this repository. Set **Compose Path** to
-   `./docker/dokploy/docker-compose.yml`.
-2. Under **Advanced → Utilities**, turn on **Isolated Deployments**. This is
-   required: nginx trusts `X-Forwarded-For` from any private address, so
-   `web` must only share a network with Traefik and this stack. On the shared
-   `dokploy-network`, any other app's container could call `web:8080` with a
-   forged header and pick its own rate-limit key.
-3. In **Environment**, set at least these three:
-
-   ```dotenv
-   POSTGRES_PASSWORD=<URL-safe random string: letters, digits, - and _>
-   JWT_SECRET=<32+ random characters>
-   PUBLIC_BASE_URL=https://<your-domain>
-   ```
-
-   `POSTGRES_USER`, `POSTGRES_DB`, `JWT_EXPIRES_IN`, `JWT_ISSUER`,
-   `JWT_AUDIENCE` and `REFRESH_TOKEN_TTL_DAYS` are optional and fall back to
-   the `.env.example` defaults. If a required variable is missing, the
-   deploy fails with a message that names it.
-4. In **Domains**, add `<your-domain>` with service `web`, port `8080`, path
-   `/`, and HTTPS on (Let's Encrypt). Point the domain's DNS `A` record at
-   the server.
-5. Click **Deploy**. The `app` service applies migrations on start. The SPA is
-   at `https://<your-domain>/app/` and Swagger at `/api/docs`.
-
-Keep Traefik's `forwardedHeaders.insecure` and `trustedIPs` unset on its
-entrypoints (Dokploy doesn't set them). With them unset, Traefik removes any
-`X-Forwarded-For` header the client sends. If they are set, clients could
-choose their own rate-limit key again. Postgres data lives in the
-`postgres_data` named volume, which Dokploy's Volume Backups can back up.
-
-To test this file locally, run it as a separate project. Requests have to
-come from a container on that project's network (playing Traefik), because
-no port is published:
-
-```bash
-export POSTGRES_PASSWORD=pw JWT_SECRET=0123456789abcdef0123456789abcdef \
-  PUBLIC_BASE_URL=https://sho.example.test
-docker compose -p dokploytest -f docker/dokploy/docker-compose.yml --env-file /dev/null up -d --build
-docker run --rm --network dokploytest_default curlimages/curl:8.11.1 -s -o /dev/null \
-  -w '%{http_code}\n' http://web:8080/app/      # 200
-docker compose -p dokploytest -f docker/dokploy/docker-compose.yml --env-file /dev/null down -v
-```
-
 ## Migrations and seed data
 
 ```bash
@@ -462,7 +369,7 @@ review loop defined in `AGENTS.md`.
    implementation" table.
 6. _Security Audit_: after complete the whole project, make a security skill to scan all the code and a code smell that can lead to security concern, and after found some concern review by human and fix it.
 
-**Example of prompts** : (Noted: We can prompt everything simple beacause we already have a fixed example and convention from the project skills and agant.md )
+**Example of prompts** : (Noted: We can prompt everything simple beacause we already have a fixed example and convention from the project skills and agant.md. But We still need human involved to review the code that AI just created)
 
 - "Plan the links module and save it in docs/."
 - "Should auth and users be separate modules?" (We first kept them together.
