@@ -1,0 +1,55 @@
+# Dokploy deployment (Compose type, compose path: ./docker/dokploy/docker-compose.yml).
+# Dokploy writes the Environment tab to .env and adds Traefik labels/network for
+# the domain set in the UI (service `web`, port 8080), so nothing publishes a
+# host port here. See README "Deploy on Dokploy".
+services:
+  app:
+    build: ../..
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-url_shortener}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-url_shortener}?schema=public
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (32+ random characters)}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_ISSUER: ${JWT_ISSUER:-url-shortener-api}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-url-shortener-clients}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-7}
+      # The public domain, e.g. https://sho.rt: the base of every shortUrl.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL to the public https URL}
+    expose:
+      - '3000'
+    depends_on:
+      postgres:
+        # Migrations run on start, so wait until Postgres accepts connections.
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build: ../../web
+    volumes:
+      # Trusts Traefik's X-Forwarded-For so each visitor keeps their own rate limit.
+      - ./nginx-real-ip.conf:/etc/nginx/conf.d/real-ip.conf:ro
+    expose:
+      - '8080'
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-url_shortener}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-url_shortener}
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Named volume: Dokploy's Volume Backups can back it up.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -18,6 +18,7 @@ explicit business rules and tests over a long feature list.
 - [API](#api)
 - [Environment variables](#environment-variables)
 - [Local setup](#local-setup)
+- [Deploy on Dokploy](#deploy-on-dokploy)
 - [Migrations and seed data](#migrations-and-seed-data)
 - [Tests](#tests)
 - [Design decisions and trade-offs](#design-decisions-and-trade-offs)
@@ -357,6 +358,60 @@ curl -i localhost:3000/<shortCode>   # 302
 
 Stop everything with `docker compose down`. Add `-v` to also delete the
 database volume.
+
+## Deploy on Dokploy
+
+Everything Dokploy-specific lives in `docker/dokploy/`. Its
+`docker-compose.yml` builds the same images as the local one, but it
+publishes no host ports, so Traefik is the only way in. It also mounts
+`nginx-real-ip.conf` into `web`, so nginx takes the client IP from the
+`X-Forwarded-For` header Traefik sets. Without that, every visitor would
+share Traefik's rate limit.
+
+1. Create a project, then add a **Compose** service of type _Docker Compose_
+   that points at this repository. Set **Compose Path** to
+   `./docker/dokploy/docker-compose.yml`.
+2. Under **Advanced → Utilities**, turn on **Isolated Deployments**. This is
+   required: nginx trusts `X-Forwarded-For` from any private address, so
+   `web` must only share a network with Traefik and this stack. On the shared
+   `dokploy-network`, any other app's container could call `web:8080` with a
+   forged header and pick its own rate-limit key.
+3. In **Environment**, set at least these three:
+
+   ```dotenv
+   POSTGRES_PASSWORD=<URL-safe random string: letters, digits, - and _>
+   JWT_SECRET=<32+ random characters>
+   PUBLIC_BASE_URL=https://<your-domain>
+   ```
+
+   `POSTGRES_USER`, `POSTGRES_DB`, `JWT_EXPIRES_IN`, `JWT_ISSUER`,
+   `JWT_AUDIENCE` and `REFRESH_TOKEN_TTL_DAYS` are optional and fall back to
+   the `.env.example` defaults. If a required variable is missing, the
+   deploy fails with a message that names it.
+4. In **Domains**, add `<your-domain>` with service `web`, port `8080`, path
+   `/`, and HTTPS on (Let's Encrypt). Point the domain's DNS `A` record at
+   the server.
+5. Click **Deploy**. The `app` service applies migrations on start. The SPA is
+   at `https://<your-domain>/app/` and Swagger at `/api/docs`.
+
+Keep Traefik's `forwardedHeaders.insecure` and `trustedIPs` unset on its
+entrypoints (Dokploy doesn't set them). With them unset, Traefik removes any
+`X-Forwarded-For` header the client sends. If they are set, clients could
+choose their own rate-limit key again. Postgres data lives in the
+`postgres_data` named volume, which Dokploy's Volume Backups can back up.
+
+To test this file locally, run it as a separate project. Requests have to
+come from a container on that project's network (playing Traefik), because
+no port is published:
+
+```bash
+export POSTGRES_PASSWORD=pw JWT_SECRET=0123456789abcdef0123456789abcdef \
+  PUBLIC_BASE_URL=https://sho.example.test
+docker compose -p dokploytest -f docker/dokploy/docker-compose.yml --env-file /dev/null up -d --build
+docker run --rm --network dokploytest_default curlimages/curl:8.11.1 -s -o /dev/null \
+  -w '%{http_code}\n' http://web:8080/app/      # 200
+docker compose -p dokploytest -f docker/dokploy/docker-compose.yml --env-file /dev/null down -v
+```
 
 ## Migrations and seed data
 
