@@ -29,7 +29,6 @@ Do not add these unless explicitly requested:
 - Kubernetes
 - Redis caching
 - RabbitMQ or Kafka
-- Frontend application
 - QR code generation
 - Custom domains
 - Team or organization management

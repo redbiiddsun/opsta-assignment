@@ -18,6 +18,8 @@ describe('ShortCode', () => {
     ['a space', 'my link'],
     ['the reserved word', 'api'],
     ['the reserved word in another case', 'API'],
+    ['the web app path', 'app'],
+    ['the web app path in another case', 'App'],
   ])(
     'Given an alias with %s, when creating, then it is rejected',
     (_case, alias) => {

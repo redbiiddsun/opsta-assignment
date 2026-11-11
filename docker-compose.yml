@@ -19,6 +19,15 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  web:
+    build: ./web
+    # nginx: /app/* is the SvelteKit SPA, everything else is proxied to `app`.
+    ports:
+      - '${WEB_PORT:-8080}:8080'
+    depends_on:
+      - app
+    restart: unless-stopped
+
   postgres:
     image: postgres:17-alpine
     environment:

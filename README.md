@@ -274,6 +274,7 @@ to boot if one is invalid.
 | `REFRESH_TOKEN_TTL_DAYS` | no | `7` | Refresh-token lifetime |
 | `PUBLIC_BASE_URL` | no | `http://localhost:3000` | Base of `shortUrl` in responses |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` | compose only | `url_shortener` / `change-me` / `url_shortener` / `5432` | Used by `docker-compose.yml` to create the database |
+| `WEB_PORT` | compose only | `8080` | Host port for the `web` service |
 
 `.env` is gitignored, and `.env.example` contains placeholders only.
 
@@ -317,6 +318,18 @@ defaults.
   build context.
 - The runtime stage has production dependencies and `dist/` only, and runs
   as the non-root `node` user.
+- `web` is a separate service (`web/`, SvelteKit built as a static SPA) on
+  `http://localhost:${WEB_PORT:-8080}`. Its nginx serves the SPA under
+  `/app/` and proxies everything else (`/api/*`, `GET /:shortCode`) to
+  `app`, so the browser talks to one origin and the API needs no CORS. The
+  SPA sits under `/app` because the redirect owns the root paths. FE and API
+  deploy and scale independently.
+
+Web app in dev mode (with the API running on port 3000):
+
+```bash
+cd web && npm ci && npm run dev    # http://localhost:5173/app/, /api proxied to :3000
+```
 
 Without Docker for the API:
 
@@ -458,6 +471,9 @@ implementation":
   are never cleaned up.
 - Rate-limit counters are in memory per process. Multiple instances would
   need a shared store.
+- Behind the `web` nginx, the API sees nginx's IP, so rate limits are
+  shared by everyone using the web origin. Fixing it means trusting
+  `X-Forwarded-For` from the proxy only (`trust proxy`).
 - Click delivery is best-effort (see above). There are no time series, top
   referrers, unique visitors or bot filtering.
 - The short code can't be changed after creation. There is no link search
