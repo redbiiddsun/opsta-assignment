@@ -40,19 +40,19 @@ custom domains, teams, geographic analytics.
 
 ## Technology stack
 
-| Area | Choice |
-|------|--------|
-| Language / runtime | TypeScript (strict), Node.js 22+ (developed on 24) |
-| Framework | NestJS 11 |
-| Database / ORM | PostgreSQL 17, Prisma 7 (`@prisma/adapter-pg`) |
-| Validation | class-validator, class-transformer |
-| Auth | `@nestjs/jwt` + own guard; Argon2id password hashing |
-| Short codes | `nanoid` v3 (CommonJS-compatible) |
-| Rate limiting | `@nestjs/throttler` |
-| Events | In-process event bus (`shared/events`) |
-| Tests | Jest + Supertest |
-| API docs | Swagger / OpenAPI (`@nestjs/swagger`) |
-| Containers | Multi-stage `Dockerfile` (non-root), Docker Compose (`app` + `postgres`) |
+| Area               | Choice                                                                   |
+| ------------------ | ------------------------------------------------------------------------ |
+| Language / runtime | TypeScript (strict), Node.js 22+ (developed on 24)                       |
+| Framework          | NestJS 11                                                                |
+| Database / ORM     | PostgreSQL 17, Prisma 7 (`@prisma/adapter-pg`)                           |
+| Validation         | class-validator, class-transformer                                       |
+| Auth               | `@nestjs/jwt` + own guard; Argon2id password hashing                     |
+| Short codes        | `nanoid` v3 (CommonJS-compatible)                                        |
+| Rate limiting      | `@nestjs/throttler`                                                      |
+| Events             | In-process event bus (`shared/events`)                                   |
+| Tests              | Jest + Supertest                                                         |
+| API docs           | Swagger / OpenAPI (`@nestjs/swagger`)                                    |
+| Containers         | Multi-stage `Dockerfile` (non-root), Docker Compose (`app` + `postgres`) |
 
 ## Architecture
 
@@ -80,12 +80,12 @@ flowchart LR
   events -. delivers .-> analytics
 ```
 
-| Module | Owns | Public API to other modules |
-|--------|------|-----------------------------|
-| `users` | `users` table, email normalization | `UsersApi` (`create`, `findByEmail`) |
-| `auth` | `credentials`, `refresh_tokens`; register/login/refresh/logout | `JwtAuthGuard`, `@CurrentUser()`, `TOKEN_VERIFIER` |
-| `links` | `links` table, short codes, redirect | `LinksApi` (`assertOwnership`), `LinkRedirectedEvent` |
-| `analytics` | `click_events` table | — |
+| Module      | Owns                                                           | Public API to other modules                           |
+| ----------- | -------------------------------------------------------------- | ----------------------------------------------------- |
+| `users`     | `users` table, email normalization                             | `UsersApi` (`create`, `findByEmail`)                  |
+| `auth`      | `credentials`, `refresh_tokens`; register/login/refresh/logout | `JwtAuthGuard`, `@CurrentUser()`, `TOKEN_VERIFIER`    |
+| `links`     | `links` table, short codes, redirect                           | `LinksApi` (`assertOwnership`), `LinkRedirectedEvent` |
+| `analytics` | `click_events` table                                           | —                                                     |
 
 Dependency rules:
 
@@ -145,12 +145,12 @@ the others.
 
 Here each module is one PBC inside a single deployable app:
 
-| PBC | Owns (data + rules) | Contract it offers | Contract it consumes |
-|-----|---------------------|--------------------|----------------------|
-| `users` | `users` table, email rules | `UsersApi` | — |
-| `auth` | `credentials`, `refresh_tokens`, JWT | `JwtAuthGuard`, `@CurrentUser()` | `UsersApi` |
-| `links` | `links` table, short codes, redirect rules | `LinksApi`, `LinkRedirectedEvent` | auth guard |
-| `analytics` | `click_events` table | — | `LinksApi`, `LinkRedirectedEvent` |
+| PBC         | Owns (data + rules)                        | Contract it offers                | Contract it consumes              |
+| ----------- | ------------------------------------------ | --------------------------------- | --------------------------------- |
+| `users`     | `users` table, email rules                 | `UsersApi`                        | —                                 |
+| `auth`      | `credentials`, `refresh_tokens`, JWT       | `JwtAuthGuard`, `@CurrentUser()`  | `UsersApi`                        |
+| `links`     | `links` table, short codes, redirect rules | `LinksApi`, `LinkRedirectedEvent` | auth guard                        |
+| `analytics` | `click_events` table                       | —                                 | `LinksApi`, `LinkRedirectedEvent` |
 
 What makes them composable:
 
@@ -232,29 +232,29 @@ erDiagram
 
 Swagger UI: **http://localhost:3000/api/docs** (when the app is running).
 
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| POST | `/api/v1/auth/register` | — | Register (201) |
-| POST | `/api/v1/auth/login` | — | Access + refresh token |
-| POST | `/api/v1/auth/refresh` | — | Rotate refresh token, new pair |
-| POST | `/api/v1/auth/logout` | — | Revoke a refresh token (204) |
-| POST | `/api/v1/links` | Bearer | Create link (random code or `alias`) |
-| GET | `/api/v1/links?page&limit` | Bearer | List own links, newest first |
-| GET | `/api/v1/links/:id` | Bearer | Get own link |
-| PATCH | `/api/v1/links/:id` | Bearer | Update `destinationUrl`, `isActive`, `expiresAt` (`null` clears) |
-| DELETE | `/api/v1/links/:id` | Bearer | Delete own link (204) |
-| GET | `/api/v1/links/:id/analytics?page&limit` | Bearer | Click summary + paginated clicks |
-| GET | `/:shortCode` | — | 302 redirect |
+| Method | Path                                     | Auth   | Purpose                                                          |
+| ------ | ---------------------------------------- | ------ | ---------------------------------------------------------------- |
+| POST   | `/api/v1/auth/register`                  | —      | Register (201)                                                   |
+| POST   | `/api/v1/auth/login`                     | —      | Access + refresh token                                           |
+| POST   | `/api/v1/auth/refresh`                   | —      | Rotate refresh token, new pair                                   |
+| POST   | `/api/v1/auth/logout`                    | —      | Revoke a refresh token (204)                                     |
+| POST   | `/api/v1/links`                          | Bearer | Create link (random code or `alias`)                             |
+| GET    | `/api/v1/links?page&limit`               | Bearer | List own links, newest first                                     |
+| GET    | `/api/v1/links/:id`                      | Bearer | Get own link                                                     |
+| PATCH  | `/api/v1/links/:id`                      | Bearer | Update `destinationUrl`, `isActive`, `expiresAt` (`null` clears) |
+| DELETE | `/api/v1/links/:id`                      | Bearer | Delete own link (204)                                            |
+| GET    | `/api/v1/links/:id/analytics?page&limit` | Bearer | Click summary + paginated clicks                                 |
+| GET    | `/:shortCode`                            | —      | 302 redirect                                                     |
 
 Status code conventions:
 
-| Status | When |
-|--------|------|
-| 400 | Invalid input, including unknown fields and `null` where it has no meaning |
-| 401 | Missing or invalid token; bad credentials (one message for unknown email and wrong password) |
-| 404 | Unknown link, or another user's link (never 403); unknown, inactive or expired short code |
-| 409 | Email taken; alias taken |
-| 429 | Rate limit exceeded: auth routes 5/min, link creation 30/min, everything else 100/min per IP |
+| Status | When                                                                                         |
+| ------ | -------------------------------------------------------------------------------------------- |
+| 400    | Invalid input, including unknown fields and `null` where it has no meaning                   |
+| 401    | Missing or invalid token; bad credentials (one message for unknown email and wrong password) |
+| 404    | Unknown link, or another user's link (never 403); unknown, inactive or expired short code    |
+| 409    | Email taken; alias taken                                                                     |
+| 429    | Rate limit exceeded: auth routes 5/min, link creation 30/min, everything else 100/min per IP |
 
 Pagination: `page` 1–10000 (default 1), `limit` 1–100 (default 20).
 
@@ -263,18 +263,18 @@ Pagination: `page` 1–10000 (default 1), `limit` 1–100 (default 20).
 Copy `.env.example` to `.env`. The app validates these at startup and refuses
 to boot if one is invalid.
 
-| Variable | Required | Default | Purpose |
-|----------|----------|---------|---------|
-| `PORT` | no | `3000` | HTTP port |
-| `DATABASE_URL` | yes | — | PostgreSQL connection string |
-| `JWT_SECRET` | yes | — | HMAC secret, at least 32 characters |
-| `JWT_EXPIRES_IN` | no | `15m` | Access-token lifetime (`<n>ms\|s\|m\|h\|d`) |
-| `JWT_ISSUER` | yes | — | `iss` claim, verified |
-| `JWT_AUDIENCE` | yes | — | `aud` claim, verified |
-| `REFRESH_TOKEN_TTL_DAYS` | no | `7` | Refresh-token lifetime |
-| `PUBLIC_BASE_URL` | no | `http://localhost:3000` | Base of `shortUrl` in responses |
+| Variable                                                                | Required     | Default                                                  | Purpose                                             |
+| ----------------------------------------------------------------------- | ------------ | -------------------------------------------------------- | --------------------------------------------------- |
+| `PORT`                                                                  | no           | `3000`                                                   | HTTP port                                           |
+| `DATABASE_URL`                                                          | yes          | —                                                        | PostgreSQL connection string                        |
+| `JWT_SECRET`                                                            | yes          | —                                                        | HMAC secret, at least 32 characters                 |
+| `JWT_EXPIRES_IN`                                                        | no           | `15m`                                                    | Access-token lifetime (`<n>ms\|s\|m\|h\|d`)         |
+| `JWT_ISSUER`                                                            | yes          | —                                                        | `iss` claim, verified                               |
+| `JWT_AUDIENCE`                                                          | yes          | —                                                        | `aud` claim, verified                               |
+| `REFRESH_TOKEN_TTL_DAYS`                                                | no           | `7`                                                      | Refresh-token lifetime                              |
+| `PUBLIC_BASE_URL`                                                       | no           | `http://localhost:3000`                                  | Base of `shortUrl` in responses                     |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` | compose only | `url_shortener` / `change-me` / `url_shortener` / `5432` | Used by `docker-compose.yml` to create the database |
-| `WEB_PORT` | compose only | `8080` | Host port for the `web` service |
+| `WEB_PORT`                                                              | compose only | `8080`                                                   | Host port for the `web` service                     |
 
 `.env` is gitignored, and `.env.example` contains placeholders only.
 
@@ -409,6 +409,7 @@ implementation":
 [analytics](docs/4-analytics.md).
 
 **Short codes and aliases**
+
 - Random codes and aliases share one unique `short_code` column, so they
   can never collide with each other.
 - A random-code collision is caught by the unique index and retried up to
@@ -416,16 +417,19 @@ implementation":
 - A taken alias is a 409, with no retry.
 
 **URL safety**
+
 - Destination URLs are parsed with the WHATWG `URL` parser, not a regex.
   Only `http`/`https` are allowed.
 - URLs with embedded credentials (`https://bank.com@evil.com`) are rejected.
 - The stored URL is normalized.
 
 **404 instead of 403 for other users' links**
+
 - Another user's link returns 404, so link ids can't be probed.
 - Unknown, inactive and expired codes share one 404 body.
 
 **Event-driven click recording**
+
 - The redirect publishes `LinkRedirectedEvent` and returns 302 without
   waiting.
 - Analytics records the click on the next tick. A failing analytics write
@@ -435,6 +439,7 @@ implementation":
   be swapped for an outbox or a broker.
 
 **Delivery is best-effort (at most once)**
+
 - A click is lost if the process dies between the 302 and the insert.
 - On a clean shutdown the bus drains pending deliveries before Prisma
   disconnects.
@@ -444,12 +449,14 @@ implementation":
   scope.
 
 **Privacy**
+
 - No IP address is stored.
 - The referrer is reduced to its origin, because its path and query can
   carry personal data.
 - The user agent is capped at 512 characters.
 
 **Auth**
+
 - Stateless JWT access tokens (15 min) and opaque refresh tokens: 256 bits,
   stored as SHA-256, single use.
 - Login checks the password even for an unknown email, so the timing
@@ -457,12 +464,13 @@ implementation":
 - `auth` owns credentials, and `users` owns identity.
 
 **No global route prefix**
+
 - API controllers use `` `${API_PREFIX}/...` `` so that `GET /:shortCode` can
   stay at the root.
 - Nest's `setGlobalPrefix({ exclude })` matches by path pattern.
   Excluding `:shortCode` also stripped the prefix from `GET /links`.
 
-## Known limitations
+## Known limitations (No need to be perfect because it's POC)
 
 - The image is about 570 MB. Most of that is the Prisma CLI and engines,
   which are kept so the container can run `migrate deploy` on start.
@@ -489,26 +497,26 @@ implementation":
 
 ## AI-assisted development log
 
-**Tools:** Claude Code (CLI agent) for planning, implementation, tests and
+**Tools:** ChatGPT & Claude Code (CLI agent) for planning, implementation, tests and
 docs. A **tech-lead** reviewer agent and a **developer** fixer agent ran the
 review loop defined in `AGENTS.md`.
 
 **Workflow per feature**
 
-1. *Plan first:* the agent wrote `docs/N-<module>.md`. The plan covers
+1. _Plan first:_ the agent wrote `docs/N-<module>.md`. The plan covers
    scope, schema, layout, contracts, use-case behaviour, validation,
    security checklist, tests and implementation order. It was reviewed and
    adjusted before any code was written.
-2. *Implement* layer by layer: domain → application (with unit tests) →
+2. _Implement_ layer by layer: domain → application (with unit tests) →
    infrastructure → interfaces, then e2e tests.
-3. *Verify:* run lint, build, unit and e2e tests against real PostgreSQL
+3. _Verify:_ run lint, build, unit and e2e tests against real PostgreSQL
    before calling anything done.
-4. *Review loop:* the tech-lead agent reviewed the diff, and the developer
+4. _Review loop:_ the tech-lead agent reviewed the diff, and the developer
    agent fixed the accepted findings. Then all checks ran again.
-5. *Sync docs:* each plan gets a status line and a "changes made during
+5. _Sync docs:_ each plan gets a status line and a "changes made during
    implementation" table.
-
-**Representative prompts** (paraphrased):
+6. _Security Audit_ after complete the whole project, make a security skill to scan all the code and a code smell that can lead to security concern, and after found some concern review by human and fix it.
+   **Representative prompts** (paraphrased):
 
 - "Plan the links module and save it in docs/."
 - "Should auth and users be separate modules?" (We first kept them together.
