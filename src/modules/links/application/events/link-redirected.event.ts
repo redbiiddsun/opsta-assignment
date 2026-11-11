@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { DomainEvent } from '../../../../shared/events/domain-event';
 
 // Public contract of the links module: analytics subscribes to it.
@@ -5,6 +6,8 @@ import { DomainEvent } from '../../../../shared/events/domain-event';
 export class LinkRedirectedEvent implements DomainEvent {
   static readonly EVENT_NAME = 'links.link-redirected';
   readonly eventName = LinkRedirectedEvent.EVENT_NAME;
+  // Lets consumers record idempotently if delivery ever becomes at-least-once.
+  readonly eventId = randomUUID();
 
   constructor(
     readonly linkId: string,

@@ -1,6 +1,18 @@
 # Analytics — Implementation Plan
 
-Status: planned. Owner module: `analytics`.
+Status: implemented. Owner module: `analytics`.
+
+## Changes made during implementation
+
+| Plan | Built | Reason |
+|------|-------|--------|
+| `ReferrerOrigin` value object | `ClickEvent.fromRedirect()` normalizes referrer and user agent | Both rules belong to building a click; one factory instead of a VO used once |
+| Use case depends on `GetLinkUseCase` | Depends on `LinkOwnershipCheck = Pick<GetLinkUseCase, 'execute'>` | Only the method it calls; unit tests pass a plain mock, no links internals |
+| e2e polls the endpoint | e2e awaits `InProcessEventBus.beforeApplicationShutdown()` (drain) | Deterministic, no timeouts |
+| — | Bus drains pending deliveries (including ones published mid-drain) on shutdown; `PrismaService` disconnects in `onApplicationShutdown` (was `onModuleDestroy`) | Nest runs `onModuleDestroy` before `beforeApplicationShutdown`, so in-flight clicks would hit a closed pool; a redirect served after the drain can still lose its click |
+| `PageRequest` in links' domain | Moved to `shared/pagination/page-request.ts` with `toOffset()` | Two repository contracts use it; analytics must not import links' domain |
+| `EventsModule` exports the bus | Exports only `EVENT_PUBLISHER` and `EVENT_SUBSCRIBER` | Modules depend on ports; tests get the bus via `app.get(InProcessEventBus)` |
+| `migrate dev` | `20261111150000_add_click_events` via `migrate diff` + `migrate deploy` | `init_users` checksum issue (see 3-links.md) |
 
 The `analytics` module records a click for every successful redirect and
 serves per-link analytics to the link's owner. It learns about redirects only
@@ -56,8 +68,7 @@ model ClickEvent {
 `links → users`, this is a schema-level foreign key only: analytics never
 queries `links`.
 
-- Migration: `add_click_events`. Use `migrate diff` + `migrate deploy` until
-  the `init_users` checksum issue is resolved (see 3-links.md).
+- Migration: `20261111150000_add_click_events`.
 - `(link_id, clicked_at)` serves both the count and the newest-first page
   (AGENTS.md §6).
 - `onDelete: Cascade`: deleting a link deletes its clicks. Analytics for a
@@ -69,8 +80,8 @@ queries `links`.
 ```text
 domain/
   entities/click-event.entity.ts        ClickEvent { id, linkId, clickedAt, referrerOrigin, userAgent }
+                                        + fromRedirect(facts): origin-only referrer, UA ≤ 512
   repositories/click-event.repository.ts ClickEventRepository + CLICK_EVENT_REPOSITORY token
-  value-objects/referrer-origin.vo.ts   header → origin or null (non-http(s) / malformed → null)
 application/
   models/link-analytics.ts              { totalClicks, lastClickedAt, clicks: ClickPage }
   use-cases/record-click.use-case.ts
@@ -119,7 +130,7 @@ is to HTTP. It maps the event to a use-case input and contains no rules.
 
 Input: `{ eventId, linkId, occurredAt, referrer, userAgent }`
 
-1. `ReferrerOrigin.from(referrer)`: parse with `URL.parse`. Keep the
+1. `ClickEvent.fromRedirect`: parse the referrer with `URL.parse`. Keep the
    `origin` only for `http`/`https`; anything else becomes `null`.
 2. Truncate `userAgent` to 512 characters (the column size). The redirect
    headers come from the client, so their size isn't trusted.
@@ -187,17 +198,17 @@ Delivery guarantee: **best-effort, at most once** in the MVP.
 
 ## 8. Security checklist
 
-- [ ] Analytics route behind `JwtAuthGuard`; ownership via `GetLinkUseCase`
-- [ ] Other users' links answer 404, not 403
-- [ ] No IP address stored; referrer reduced to its origin
-- [ ] Header values size-bounded before insert
-- [ ] Analytics failures never change link state or the redirect response
+- [x] Analytics route behind `JwtAuthGuard`; ownership via `GetLinkUseCase`
+- [x] Other users' links answer 404, not 403
+- [x] No IP address stored; referrer reduced to its origin
+- [x] Header values size-bounded before insert
+- [x] Analytics failures never change link state or the redirect response
 
 ## 9. Tests
 
 **Unit** (no DB):
 
-- `ReferrerOrigin` — full URL → origin; `android-app://`, malformed, empty,
+- `ClickEvent.fromRedirect` — full URL → origin; `android-app://`, malformed, empty,
   `null` → `null`
 - `RecordClickUseCase` — maps the event; long user agent truncated
 - `GetLinkAnalyticsUseCase` — not-owner propagates `LinkNotFoundError`
@@ -215,8 +226,8 @@ Delivery guarantee: **best-effort, at most once** in the MVP.
 - Deleting the link deletes its clicks (via `PrismaService` count)
 - Pagination of clicks
 
-Recording happens on the next tick, so the e2e polls the analytics endpoint
-with a short timeout instead of a fixed sleep.
+Recording happens on the next tick, so the e2e awaits the bus drain
+(`beforeApplicationShutdown`) instead of sleeping.
 
 **Repository / idempotency** (e2e or integration against the DB): recording
 the same `eventId` twice gives one row, and recording for a deleted link
@@ -224,12 +235,12 @@ does not throw.
 
 ## 10. Implementation order
 
-1. `eventId` on `LinkRedirectedEvent` (+ unit test).
-2. `EventSubscriber` port + binding in `EventsModule`.
-3. `ClickEvent` model + `add_click_events` migration.
-4. Domain → application (+ unit tests) → infrastructure → interfaces.
-5. Register `AnalyticsModule` in `AppModule`.
-6. E2E tests; Swagger (`@ApiBearerAuth`, 200/401/404).
+1. ~~`eventId` on `LinkRedirectedEvent` (+ unit test).~~
+2. ~~`EventSubscriber` port + binding in `EventsModule`.~~
+3. ~~`ClickEvent` model + `add_click_events` migration.~~
+4. ~~Domain → application (+ unit tests) → infrastructure → interfaces.~~
+5. ~~Register `AnalyticsModule` in `AppModule`.~~
+6. ~~E2E tests; Swagger (`@ApiBearerAuth`, 200/401/404).~~
 7. Update README when it is rewritten (delivery guarantee, endpoint).
 8. Review loop: tech-lead agent review → developer agent fixes.
 

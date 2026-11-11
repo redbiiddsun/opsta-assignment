@@ -160,6 +160,7 @@ export interface EventPublisher {
 export class LinkRedirectedEvent implements DomainEvent {
   static readonly EVENT_NAME = 'links.link-redirected';
   readonly eventName = LinkRedirectedEvent.EVENT_NAME;
+  readonly eventId = randomUUID();                // idempotency key for consumers
   constructor(
     readonly linkId: string,
     readonly occurredAt: Date,
@@ -283,8 +284,10 @@ sequenceDiagram
   (AGENTS.md §7).
 - The event carries only `linkId`, timestamp, referrer and user agent — no
   IP address, no request object.
-- No subscriber exists until the analytics plan; publishing with no
-  subscribers is a no-op.
+- The analytics module subscribes and records clicks (see
+  [4-analytics.md](4-analytics.md)). On a clean shutdown the bus drains
+  deliveries published so far before Prisma disconnects, but a redirect
+  served after the drain can still lose its click.
 
 ## 8. Input validation
 

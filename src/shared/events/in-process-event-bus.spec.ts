@@ -69,4 +69,39 @@ describe('InProcessEventBus', () => {
     );
     loggerError.mockRestore();
   });
+
+  it('Given a delivery still pending, when the app shuts down, then shutdown waits for the handler to finish', async () => {
+    // Given
+    const eventBus = new InProcessEventBus();
+    let isHandled = false;
+    eventBus.subscribe(SampleEvent, async () => {
+      await nextTick();
+      isHandled = true;
+    });
+    eventBus.publish(new SampleEvent('payload'));
+
+    // When
+    await eventBus.beforeApplicationShutdown();
+
+    // Then
+    expect(isHandled).toBe(true);
+  });
+
+  it('Given a handler that publishes another event, when the app shuts down, then shutdown waits for both deliveries', async () => {
+    // Given
+    const eventBus = new InProcessEventBus();
+    let isFollowUpHandled = false;
+    eventBus.subscribe(SampleEvent, () => eventBus.publish(new OtherEvent()));
+    eventBus.subscribe(OtherEvent, async () => {
+      await nextTick();
+      isFollowUpHandled = true;
+    });
+    eventBus.publish(new SampleEvent('payload'));
+
+    // When
+    await eventBus.beforeApplicationShutdown();
+
+    // Then
+    expect(isFollowUpHandled).toBe(true);
+  });
 });

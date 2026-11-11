@@ -1,20 +1,24 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BeforeApplicationShutdown, Injectable, Logger } from '@nestjs/common';
 import {
   DomainEvent,
   DomainEventHandler,
   DomainEventType,
 } from './domain-event';
 import { EventPublisher } from './event-publisher';
+import { EventSubscriber } from './event-subscriber';
 
 // ponytail: in-memory, best-effort delivery; events are lost if the process
 // crashes before handlers finish. Durable delivery needs a transactional outbox.
 @Injectable()
-export class InProcessEventBus implements EventPublisher {
+export class InProcessEventBus
+  implements EventPublisher, EventSubscriber, BeforeApplicationShutdown
+{
   private readonly logger = new Logger(InProcessEventBus.name);
   private readonly handlersByEventName = new Map<
     string,
     DomainEventHandler<DomainEvent>[]
   >();
+  private readonly pendingDeliveries = new Set<Promise<void>>();
 
   subscribe<TEvent extends DomainEvent>(
     eventType: DomainEventType<TEvent>,
@@ -30,7 +34,21 @@ export class InProcessEventBus implements EventPublisher {
     const handlers = this.handlersByEventName.get(event.eventName) ?? [];
     for (const handler of handlers) {
       // Next tick, so the publisher (e.g. a redirect) never waits on handlers.
-      setImmediate(() => void this.runHandler(handler, event));
+      const delivery = new Promise<void>((resolve) =>
+        setImmediate(resolve),
+      ).then(() => this.runHandler(handler, event));
+      this.pendingDeliveries.add(delivery);
+      void delivery.finally(() => this.pendingDeliveries.delete(delivery));
+    }
+  }
+
+  // Runs before onApplicationShutdown, where PrismaService disconnects. Loops
+  // because a handler may publish while we wait. Best-effort only: Nest closes
+  // the HTTP server later (in dispose), so a redirect served after the drain
+  // can still lose its click.
+  async beforeApplicationShutdown(): Promise<void> {
+    while (this.pendingDeliveries.size > 0) {
+      await Promise.all([...this.pendingDeliveries]);
     }
   }
 

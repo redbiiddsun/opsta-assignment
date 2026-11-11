@@ -6,6 +6,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { validateEnvironment } from './shared/config/env.validation';
 import { PrismaModule } from './shared/database/prisma.module';
 import { AllExceptionsFilter } from './shared/exceptions/all-exceptions.filter';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { LinksModule } from './modules/links/links.module';
 import { EventsModule } from './shared/events/events.module';
@@ -24,6 +25,7 @@ const THROTTLE_LIMIT_PER_TTL = 100;
     EventsModule,
     AuthModule,
     LinksModule,
+    AnalyticsModule,
   ],
   controllers: [],
   providers: [

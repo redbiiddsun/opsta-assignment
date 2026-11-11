@@ -1,4 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import {
+  PageRequest,
+  toOffset,
+} from '../../../../shared/pagination/page-request';
 import { PrismaTransactionContext } from '../../../../shared/database/prisma-transaction-context';
 import {
   Link as LinkRecord,
@@ -11,7 +15,6 @@ import {
   LinkChanges,
   LinkRepository,
   NewLink,
-  PageRequest,
 } from '../../domain/repositories/link.repository';
 
 const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
@@ -62,15 +65,15 @@ export class PrismaLinkRepository implements LinkRepository {
 
   async listByOwner(
     ownerId: string,
-    { page, limit }: PageRequest,
+    pageRequest: PageRequest,
   ): Promise<{ items: Link[]; total: number }> {
     const [records, total] = await Promise.all([
       this.database.db.link.findMany({
         where: { ownerId },
         // id breaks createdAt ties so pages never overlap.
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        skip: (page - 1) * limit,
-        take: limit,
+        skip: toOffset(pageRequest),
+        take: pageRequest.limit,
       }),
       this.database.db.link.count({ where: { ownerId } }),
     ]);

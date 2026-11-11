@@ -1,3 +1,4 @@
+import { PageRequest } from '../../../../shared/pagination/page-request';
 import { Link } from '../entities/link.entity';
 
 export const LINK_REPOSITORY = Symbol('LINK_REPOSITORY');
@@ -14,11 +15,6 @@ export interface LinkChanges {
   destinationUrl?: string;
   isActive?: boolean;
   expiresAt?: Date | null;
-}
-
-export interface PageRequest {
-  page: number;
-  limit: number;
 }
 
 export interface LinkRepository {

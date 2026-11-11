@@ -67,8 +67,26 @@ model Link {
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  clickEvents ClickEvent[]
 
   @@index([ownerId, createdAt])
   @@map("links")
+}
+
+// Owned by the analytics module.
+model ClickEvent {
+  // = LinkRedirectedEvent.eventId, so a redelivered event can't double-count.
+  id             String   @id @db.Uuid
+  linkId         String   @map("link_id") @db.Uuid
+  clickedAt      DateTime @map("clicked_at") @db.Timestamptz(3)
+  // Origin only (https://news.example), never the full URL: paths and
+  // query strings can carry personal data.
+  referrerOrigin String?  @map("referrer_origin") @db.VarChar(255)
+  userAgent      String?  @map("user_agent") @db.VarChar(512)
+
+  link Link @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@index([linkId, clickedAt])
+  @@map("click_events")
 }

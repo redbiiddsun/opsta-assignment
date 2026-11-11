@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { EVENT_PUBLISHER } from './event-publisher';
+import { EVENT_SUBSCRIBER } from './event-subscriber';
 import { InProcessEventBus } from './in-process-event-bus';
 
 @Global()
@@ -7,8 +8,9 @@ import { InProcessEventBus } from './in-process-event-bus';
   providers: [
     InProcessEventBus,
     { provide: EVENT_PUBLISHER, useExisting: InProcessEventBus },
+    { provide: EVENT_SUBSCRIBER, useExisting: InProcessEventBus },
   ],
-  // The bus itself is exported for subscribers; publishers depend on EVENT_PUBLISHER.
-  exports: [InProcessEventBus, EVENT_PUBLISHER],
+  // Modules depend on the ports, never on the in-process bus itself.
+  exports: [EVENT_PUBLISHER, EVENT_SUBSCRIBER],
 })
 export class EventsModule {}
