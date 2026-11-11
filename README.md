@@ -26,7 +26,7 @@ explicit business rules and tests over a long feature list.
 
 Prerequisites: Node.js 22+ and npm, Docker with Docker Compose v2.24+ (for optional `env_file` entries).
 
-For Docker Composse running applicaition ( API & Web Interface ):
+For Docker Compose running application ( API & Web Interface ):
 
 ```bash
 docker compose up -d --build
@@ -52,7 +52,7 @@ npm run start:dev                  # API on http://localhost:3000, Swagger at /a
 Quick check API service:
 
 ```bash
-curl -s -X POST localhost:{3000}/api/v1/auth/register \
+curl -s -X POST localhost:3000/api/v1/auth/register \
   -H 'content-type: application/json' \
   -d '{"email":"me@example.com","password":"correct-password"}'
 TOKEN=$(curl -s -X POST localhost:3000/api/v1/auth/login \
