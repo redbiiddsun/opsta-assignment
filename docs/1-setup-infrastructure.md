@@ -94,17 +94,23 @@ Prisma's install scripts; `@scarf/scarf` telemetry is denied.
 | Service | Details |
 |---------|---------|
 | `postgres` | `postgres:17-alpine`; env from `.env`; healthcheck `pg_isready`; named volume `postgres_data` |
-| `app` | built from `Dockerfile`; `depends_on: postgres: condition: service_healthy`; runs `prisma migrate deploy` then starts |
+| `app` | built from `Dockerfile`; `env_file: .env` plus `DATABASE_URL` pointed at `postgres`; `depends_on: postgres: condition: service_healthy`; runs `prisma migrate deploy` then starts |
 
-Phase 1 (with users-auth) ships `postgres` only, so migrations and tests can
-run. `app` is added once the API is runnable end-to-end.
+Status: both services implemented (`app` added after analytics).
 
 ### Dockerfile (multi-stage)
 
-1. `deps` — `npm ci`
-2. `build` — `npx prisma generate && npm run build`
-3. `runtime` — `node:lts-alpine`, production deps + `dist` + `prisma/`,
-   runs as non-root `node` user. Entry: `npx prisma migrate deploy && node dist/main`.
+1. `deps` (`node:24-alpine`): copy `package*.json`, `prisma.config.ts` and
+   `prisma/`, then `npm ci`. `postinstall` runs `prisma generate`, which
+   needs the schema.
+2. `build`: `COPY . .` and `npm run build`.
+3. `runtime`: `npm ci --omit=dev`. The Prisma CLI is a production dependency
+   for `migrate deploy`. The regenerated `src/` is deleted. Only `dist/`,
+   `prisma/` and `prisma.config.ts` are copied in. It runs as the non-root
+   `node` user. Entry: `npx prisma migrate deploy && node dist/main`.
+
+`.dockerignore` excludes `.env*` (except `.env.example`), `node_modules`,
+`dist`, `test`, `docs` and the generated client.
 
 ## 7. Test database
 
@@ -125,7 +131,7 @@ npx prisma migrate dev             # apply migrations (dev)
 npm run start:dev                  # run API locally
 npm test                           # unit tests
 npm run test:e2e                   # e2e (needs postgres + .env)
-docker compose up --build          # production-like startup (once app service exists)
+docker compose up --build          # production-like startup: postgres + app
 ```
 
 ## 9. Implementation order

@@ -1,4 +1,19 @@
 services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      # Inside the compose network the database host is the service name.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      PORT: 3000
+    ports:
+      - '${PORT:-3000}:3000'
+    depends_on:
+      postgres:
+        # Migrations run on start, so wait until Postgres accepts connections.
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
     image: postgres:17-alpine
     environment:

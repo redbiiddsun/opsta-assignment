@@ -51,7 +51,7 @@ custom domains, teams, geographic analytics.
 | Events | In-process event bus (`shared/events`) |
 | Tests | Jest + Supertest |
 | API docs | Swagger / OpenAPI (`@nestjs/swagger`) |
-| Local infra | Docker Compose (PostgreSQL) |
+| Containers | Multi-stage `Dockerfile` (non-root), Docker Compose (`app` + `postgres`) |
 
 ## Architecture
 
@@ -250,7 +250,23 @@ npx prisma generate                # generate the Prisma client into src/shared/
 npm run start:dev                  # API on http://localhost:3000, Swagger at /api/docs
 ```
 
-Production-like local run:
+Production-like run, with the API in a container as well:
+
+```bash
+cp .env.example .env               # set JWT_SECRET and the DB password
+docker compose up --build          # postgres (healthcheck) → app: migrate deploy → node dist/main
+```
+
+- `app` waits for Postgres to report healthy. It then applies migrations
+  (`prisma migrate deploy`) and starts on `http://localhost:${PORT:-3000}`.
+- Its `DATABASE_URL` points at the `postgres` service. Every other value
+  comes from `.env` at run time.
+- The image contains no secrets. `.dockerignore` keeps `.env` out of the
+  build context.
+- The runtime stage has production dependencies and `dist/` only, and runs
+  as the non-root `node` user.
+
+Without Docker for the API:
 
 ```bash
 npm run build
@@ -271,10 +287,8 @@ curl -s -X POST localhost:3000/api/v1/links -H "authorization: Bearer $TOKEN" \
 curl -i localhost:3000/<shortCode>   # 302
 ```
 
-> Docker Compose currently runs **PostgreSQL only**; the API runs on the host.
-> The multi-stage `Dockerfile` and the `app` service are planned (see
-> [docs/1-setup-infrastructure.md](docs/1-setup-infrastructure.md) §6) but not
-> built yet.
+Stop everything with `docker compose down`. Add `-v` to also delete the
+database volume.
 
 ## Migrations and seed data
 
@@ -382,7 +396,9 @@ implementation":
 
 ## Known limitations
 
-- No `Dockerfile` or `app` compose service yet. The API runs on the host.
+- The image is about 570 MB. Most of that is the Prisma CLI and engines,
+  which are kept so the container can run `migrate deploy` on start.
+  A separate migration job would allow a slimmer image.
 - No separate test database. E2E tests write to the dev database.
 - An access token stays valid until it expires (up to 15 min) after logout or
   user deletion.
