@@ -32,6 +32,16 @@ For Docker Compose running application ( API & Web Interface ):
 docker compose up -d --build
 ```
 
+| URL                              | What                                                      |
+| -------------------------------- | --------------------------------------------------------- |
+| http://localhost:8080            | Web interface (redirects to `/app/`)                      |
+| http://localhost:8080/api/v1     | API through the web's nginx (same origin as the web app)  |
+| http://localhost:8080/:shortCode | Short-link redirect through nginx                         |
+| http://localhost:3000/api/v1     | API directly (bound to `127.0.0.1` only)                  |
+| http://localhost:3000/api/docs   | Swagger UI                                                |
+
+Change the host ports with `WEB_PORT` and `PORT` in `.env`.
+
 From a Development Process checkout:
 
 ```bash
