@@ -4,8 +4,9 @@
 FROM node:24-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json prisma.config.ts ./
-# postinstall runs `prisma generate`, which needs the schema.
-COPY prisma ./prisma
+# postinstall runs `prisma generate`, which needs only the schema. Copying the
+# migrations here would bust the `npm ci` cache on every new migration.
+COPY prisma/schema.prisma ./prisma/schema.prisma
 RUN npm ci
 
 # ---- build: compile (the client was generated into src/ by postinstall) ----
@@ -18,10 +19,11 @@ FROM node:24-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json prisma.config.ts ./
-COPY prisma ./prisma
+COPY prisma/schema.prisma ./prisma/schema.prisma
 # The prisma CLI is a production dependency: the container applies migrations on start.
 # postinstall regenerates the client into src/, which the compiled dist doesn't use.
 RUN npm ci --omit=dev && rm -rf src && npm cache clean --force
+COPY prisma/migrations ./prisma/migrations
 COPY --from=build /app/dist ./dist
 USER node
 EXPOSE 3000

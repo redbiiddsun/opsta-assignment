@@ -250,17 +250,22 @@ npx prisma generate                # generate the Prisma client into src/shared/
 npm run start:dev                  # API on http://localhost:3000, Swagger at /api/docs
 ```
 
+Keep the DB password URL-safe (letters, digits, `-`, `_`): it is embedded
+unescaped in `DATABASE_URL`, so `@ : / # %` would break the connection string.
+
 Production-like run, with the API in a container as well:
 
 ```bash
-cp .env.example .env               # set JWT_SECRET and the DB password
+cp .env.example .env               # set JWT_SECRET and a URL-safe DB password
 docker compose up --build          # postgres (healthcheck) → app: migrate deploy → node dist/main
 ```
 
 - `app` waits for Postgres to report healthy. It then applies migrations
   (`prisma migrate deploy`) and starts on `http://localhost:${PORT:-3000}`.
-- Its `DATABASE_URL` points at the `postgres` service. Every other value
-  comes from `.env` at run time.
+- Compose overrides two values from `.env`: `DATABASE_URL` points at the
+  `postgres` service, and `PORT` is fixed at `3000` inside the container.
+  `PORT` in `.env` only chooses the host port. Every other value comes from
+  `.env` at run time.
 - The image contains no secrets. `.dockerignore` keeps `.env` out of the
   build context.
 - The runtime stage has production dependencies and `dist/` only, and runs

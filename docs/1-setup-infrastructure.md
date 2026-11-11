@@ -94,19 +94,21 @@ Prisma's install scripts; `@scarf/scarf` telemetry is denied.
 | Service | Details |
 |---------|---------|
 | `postgres` | `postgres:17-alpine`; env from `.env`; healthcheck `pg_isready`; named volume `postgres_data` |
-| `app` | built from `Dockerfile`; `env_file: .env` plus `DATABASE_URL` pointed at `postgres`; `depends_on: postgres: condition: service_healthy`; runs `prisma migrate deploy` then starts |
+| `app` | built from `Dockerfile`; `env_file: .env`, with `DATABASE_URL` overridden to point at `postgres` and `PORT` fixed at `3000` in the container (`PORT` in `.env` only chooses the host port); `depends_on: postgres: condition: service_healthy`; runs `prisma migrate deploy` then starts |
 
 Status: both services implemented (`app` added after analytics).
 
 ### Dockerfile (multi-stage)
 
 1. `deps` (`node:24-alpine`): copy `package*.json`, `prisma.config.ts` and
-   `prisma/`, then `npm ci`. `postinstall` runs `prisma generate`, which
-   needs the schema.
+   `prisma/schema.prisma`, then `npm ci`. `postinstall` runs `prisma generate`,
+   which needs only the schema. Migrations are left out so a new one doesn't
+   bust the `npm ci` cache.
 2. `build`: `COPY . .` and `npm run build`.
-3. `runtime`: `npm ci --omit=dev`. The Prisma CLI is a production dependency
-   for `migrate deploy`. The regenerated `src/` is deleted. Only `dist/`,
-   `prisma/` and `prisma.config.ts` are copied in. It runs as the non-root
+3. `runtime`: copy `package*.json`, `prisma.config.ts` and
+   `prisma/schema.prisma`, then `npm ci --omit=dev`. The Prisma CLI is a
+   production dependency for `migrate deploy`. The regenerated `src/` is
+   deleted. `prisma/migrations/` is copied after `npm ci`, then `dist/`. It runs as the non-root
    `node` user. Entry: `npx prisma migrate deploy && node dist/main`.
 
 `.dockerignore` excludes `.env*` (except `.env.example`), `node_modules`,
