@@ -124,7 +124,7 @@ interfaces/http/
   dto/update-link.request.ts
   dto/link.response.ts                 includes shortUrl
   dto/link-page.response.ts
-links.module.ts                        imports AuthModule; exports GetLinkUseCase
+links.module.ts                        imports AuthModule; exports LINKS_API (LinksApi contract)
 
 shared/events/
   domain-event.ts                      DomainEvent, DomainEventType, DomainEventHandler

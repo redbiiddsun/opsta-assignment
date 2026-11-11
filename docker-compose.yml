@@ -1,10 +1,15 @@
 services:
   app:
     build: .
-    env_file: .env
+    # .env.example gives working local defaults so a fresh clone runs with one
+    # command; a real .env, when present, overrides it.
+    env_file:
+      - path: .env.example
+      - path: .env
+        required: false
     environment:
       # Inside the compose network the database host is the service name.
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-url_shortener}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-url_shortener}?schema=public
       PORT: 3000
     ports:
       - '${PORT:-3000}:3000'
@@ -17,9 +22,10 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      # Defaults match .env.example; compose reads ${...} from .env only.
+      POSTGRES_USER: ${POSTGRES_USER:-url_shortener}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-url_shortener}
     ports:
       - '${POSTGRES_PORT:-5432}:5432'
     healthcheck:

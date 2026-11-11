@@ -1,6 +1,6 @@
 import { ClickEvent } from '../../../domain/entities/click-event.entity';
 import { ClickEventRepository } from '../../../domain/repositories/click-event.repository';
-import { LinkOwnershipCheck } from '../get-link-analytics.use-case';
+import { LinksApi } from '../../../../links/application/contracts/links-api';
 
 export const LINK_ID = 'link-id';
 export const USER_ID = 'user-id';
@@ -21,5 +21,6 @@ export const createClickEventRepositoryMock =
     listByLink: jest.fn(),
   });
 
-export const createLinkOwnershipCheckMock =
-  (): jest.Mocked<LinkOwnershipCheck> => ({ execute: jest.fn() });
+export const createLinksApiMock = (): jest.Mocked<LinksApi> => ({
+  assertOwnership: jest.fn(),
+});

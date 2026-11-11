@@ -1,13 +1,10 @@
-import { GetLinkUseCase } from '../../../links/application/use-cases/get-link.use-case';
+import { LinksApi } from '../../../links/application/contracts/links-api';
 import { ClickEventRepository } from '../../domain/repositories/click-event.repository';
 import { GetLinkAnalyticsInput, LinkAnalytics } from '../models/link-analytics';
 
-// Only the method analytics calls, so tests and the module boundary stay narrow.
-export type LinkOwnershipCheck = Pick<GetLinkUseCase, 'execute'>;
-
 export class GetLinkAnalyticsUseCase {
   constructor(
-    private readonly linkOwnershipCheck: LinkOwnershipCheck,
+    private readonly linksApi: LinksApi,
     private readonly clickEventRepository: ClickEventRepository,
   ) {}
 
@@ -18,7 +15,7 @@ export class GetLinkAnalyticsUseCase {
     page,
     limit,
   }: GetLinkAnalyticsInput): Promise<LinkAnalytics> {
-    await this.linkOwnershipCheck.execute({ linkId, userId });
+    await this.linksApi.assertOwnership({ linkId, userId });
 
     const [{ totalClicks, lastClickedAt }, items] = await Promise.all([
       this.clickEventRepository.summarize(linkId),

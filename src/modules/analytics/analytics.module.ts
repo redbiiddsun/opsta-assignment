@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
-import { GetLinkUseCase } from '../links/application/use-cases/get-link.use-case';
+import { LINKS_API, LinksApi } from '../links/application/contracts/links-api';
 import { LinksModule } from '../links/links.module';
 import { GetLinkAnalyticsUseCase } from './application/use-cases/get-link-analytics.use-case';
 import { RecordClickUseCase } from './application/use-cases/record-click.use-case';
@@ -13,7 +13,7 @@ import { LinkRedirectedListener } from './interfaces/events/link-redirected.list
 import { LinkAnalyticsController } from './interfaces/http/controllers/link-analytics.controller';
 
 @Module({
-  // LinksModule for its public GetLinkUseCase (ownership); never its repository.
+  // LinksModule only for its public LinksApi (ownership); never its repository.
   imports: [AuthModule, LinksModule],
   controllers: [LinkAnalyticsController],
   providers: [
@@ -26,11 +26,11 @@ import { LinkAnalyticsController } from './interfaces/http/controllers/link-anal
     },
     {
       provide: GetLinkAnalyticsUseCase,
-      inject: [GetLinkUseCase, CLICK_EVENT_REPOSITORY],
+      inject: [LINKS_API, CLICK_EVENT_REPOSITORY],
       useFactory: (
-        getLinkUseCase: GetLinkUseCase,
+        linksApi: LinksApi,
         clickEventRepository: ClickEventRepository,
-      ) => new GetLinkAnalyticsUseCase(getLinkUseCase, clickEventRepository),
+      ) => new GetLinkAnalyticsUseCase(linksApi, clickEventRepository),
     },
     LinkRedirectedListener,
   ],

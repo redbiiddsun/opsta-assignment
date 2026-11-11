@@ -8,6 +8,7 @@ import {
   SHORT_CODE_GENERATOR,
   ShortCodeGenerator,
 } from './application/contracts/short-code-generator';
+import { LINKS_API, LinksApi } from './application/contracts/links-api';
 import { CreateLinkUseCase } from './application/use-cases/create-link.use-case';
 import { DeleteLinkUseCase } from './application/use-cases/delete-link.use-case';
 import { GetLinkUseCase } from './application/use-cases/get-link.use-case';
@@ -73,8 +74,17 @@ import { RedirectController } from './interfaces/http/controllers/redirect.contr
         eventPublisher: EventPublisher,
       ) => new ResolveRedirectUseCase(linkRepository, eventPublisher),
     },
+    {
+      provide: LINKS_API,
+      inject: [GetLinkUseCase],
+      // ponytail: the contract is one ownership check, so it adapts GetLinkUseCase instead of a service class.
+      useFactory: (getLinkUseCase: GetLinkUseCase): LinksApi => ({
+        assertOwnership: async (input) => {
+          await getLinkUseCase.execute(input);
+        },
+      }),
+    },
   ],
-  // Public API for analytics: ownership-checked link lookup.
-  exports: [GetLinkUseCase],
+  exports: [LINKS_API],
 })
 export class LinksModule {}

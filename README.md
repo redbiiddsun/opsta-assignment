@@ -13,6 +13,7 @@ explicit business rules and tests over a long feature list.
 - [Scope](#scope)
 - [Technology stack](#technology-stack)
 - [Architecture](#architecture)
+- [Composable Enterprise: modules as PBCs](#composable-enterprise-modules-as-pbcs)
 - [Database schema](#database-schema)
 - [API](#api)
 - [Environment variables](#environment-variables)
@@ -74,7 +75,7 @@ flowchart LR
   auth -->|UsersApi| users
   links -->|JwtAuthGuard| auth
   analytics -->|JwtAuthGuard| auth
-  analytics -->|GetLinkUseCase| links
+  analytics -->|LinksApi| links
   links -. publishes LinkRedirectedEvent .-> events
   events -. delivers .-> analytics
 ```
@@ -83,7 +84,7 @@ flowchart LR
 |--------|------|-----------------------------|
 | `users` | `users` table, email normalization | `UsersApi` (`create`, `findByEmail`) |
 | `auth` | `credentials`, `refresh_tokens`; register/login/refresh/logout | `JwtAuthGuard`, `@CurrentUser()`, `TOKEN_VERIFIER` |
-| `links` | `links` table, short codes, redirect | `GetLinkUseCase` (ownership-checked lookup), `LinkRedirectedEvent` |
+| `links` | `links` table, short codes, redirect | `LinksApi` (`assertOwnership`), `LinkRedirectedEvent` |
 | `analytics` | `click_events` table | — |
 
 Dependency rules:
@@ -133,6 +134,47 @@ sequenceDiagram
     L->>DB: insert click_events (id = eventId)
   end
 ```
+
+## Composable Enterprise: modules as PBCs
+
+In a Composable Enterprise, the system is built from **Packaged Business
+Capabilities (PBCs)**. A PBC is a self-contained business capability that
+owns its data and logic and is reached only through a published contract
+(an API or an event), so it can be recombined or replaced without changing
+the others.
+
+Here each module is one PBC inside a single deployable app:
+
+| PBC | Owns (data + rules) | Contract it offers | Contract it consumes |
+|-----|---------------------|--------------------|----------------------|
+| `users` | `users` table, email rules | `UsersApi` | — |
+| `auth` | `credentials`, `refresh_tokens`, JWT | `JwtAuthGuard`, `@CurrentUser()` | `UsersApi` |
+| `links` | `links` table, short codes, redirect rules | `LinksApi`, `LinkRedirectedEvent` | auth guard |
+| `analytics` | `click_events` table | — | `LinksApi`, `LinkRedirectedEvent` |
+
+What makes them composable:
+
+- **Contracts, not internals.** Contracts live in `application/contracts`
+  and are bound to DI tokens (`USERS_API`, `LINKS_API`). They use plain
+  TypeScript types, never Prisma models or HTTP DTOs.
+- **Events for side effects.** `links` publishes `LinkRedirectedEvent` and
+  doesn't know who listens. Analytics could be removed, or a second
+  subscriber added, with no change to `links`.
+- **Replaceable transport.** Events go through the `EventPublisher` /
+  `EventSubscriber` ports. Swapping the in-process bus for an outbox +
+  broker is an infrastructure change only.
+- **Replaceable storage.** Each PBC defines its repository interface in
+  `domain/repositories`. Prisma/PostgreSQL is one implementation in
+  `infrastructure/persistence`.
+
+How a PBC could be extracted later, e.g. analytics as its own service:
+point an `EventSubscriber` at a broker instead of the in-process bus, and
+replace the `LINKS_API` binding with an HTTP client that implements the
+same `LinksApi` interface. The use cases don't change.
+
+What this MVP does not do: PBCs share one process and one database (each
+with its own tables), and events are in-memory. That keeps it simple; the
+contracts are where the seams are.
 
 ## Database schema
 
@@ -231,13 +273,13 @@ to boot if one is invalid.
 | `JWT_AUDIENCE` | yes | — | `aud` claim, verified |
 | `REFRESH_TOKEN_TTL_DAYS` | no | `7` | Refresh-token lifetime |
 | `PUBLIC_BASE_URL` | no | `http://localhost:3000` | Base of `shortUrl` in responses |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` | compose only | — | Used by `docker-compose.yml` to create the database |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` | compose only | `url_shortener` / `change-me` / `url_shortener` / `5432` | Used by `docker-compose.yml` to create the database |
 
 `.env` is gitignored, and `.env.example` contains placeholders only.
 
 ## Local setup
 
-Prerequisites: Node.js 22+ and npm, Docker with Docker Compose.
+Prerequisites: Node.js 22+ and npm, Docker with Docker Compose v2.24+ (for optional `env_file` entries).
 
 From a clean checkout:
 
@@ -253,19 +295,24 @@ npm run start:dev                  # API on http://localhost:3000, Swagger at /a
 Keep the DB password URL-safe (letters, digits, `-`, `_`): it is embedded
 unescaped in `DATABASE_URL`, so `@ : / # %` would break the connection string.
 
-Production-like run, with the API in a container as well:
+Production-like run, with the API in a container as well — **one command**
+from a fresh clone:
 
 ```bash
-cp .env.example .env               # set JWT_SECRET and a URL-safe DB password
 docker compose up --build          # postgres (healthcheck) → app: migrate deploy → node dist/main
 ```
 
+With no `.env`, compose uses the placeholder values from `.env.example`, which
+are fine for a local demo only. For anything else, `cp .env.example .env`,
+set a real `JWT_SECRET` and a URL-safe DB password; `.env` overrides the
+defaults.
+
 - `app` waits for Postgres to report healthy. It then applies migrations
   (`prisma migrate deploy`) and starts on `http://localhost:${PORT:-3000}`.
-- Compose overrides two values from `.env`: `DATABASE_URL` points at the
-  `postgres` service, and `PORT` is fixed at `3000` inside the container.
-  `PORT` in `.env` only chooses the host port. Every other value comes from
-  `.env` at run time.
+- App values come from `.env.example`, overridden by `.env` when it exists.
+  Compose itself sets two: `DATABASE_URL` points at the `postgres` service,
+  and `PORT` is fixed at `3000` inside the container. `PORT` in `.env` only
+  chooses the host port.
 - The image contains no secrets. `.dockerignore` keeps `.env` out of the
   build context.
 - The runtime stage has production dependencies and `dist/` only, and runs

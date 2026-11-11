@@ -7,7 +7,7 @@ Status: implemented. Owner module: `analytics`.
 | Plan | Built | Reason |
 |------|-------|--------|
 | `ReferrerOrigin` value object | `ClickEvent.fromRedirect()` normalizes referrer and user agent | Both rules belong to building a click; one factory instead of a VO used once |
-| Use case depends on `GetLinkUseCase` | Depends on `LinkOwnershipCheck = Pick<GetLinkUseCase, 'execute'>` | Only the method it calls; unit tests pass a plain mock, no links internals |
+| Use case depends on `GetLinkUseCase` | Depends on the `LinksApi` contract (`LINKS_API` token, `assertOwnership`) | Same pattern as `UsersApi`: analytics knows a contract, not a links use-case class, so links is replaceable (PBC) |
 | e2e polls the endpoint | e2e awaits `InProcessEventBus.beforeApplicationShutdown()` (drain) | Deterministic, no timeouts |
 | — | Bus drains pending deliveries (including ones published mid-drain) on shutdown; `PrismaService` disconnects in `onApplicationShutdown` (was `onModuleDestroy`) | Nest runs `onModuleDestroy` before `beforeApplicationShutdown`, so in-flight clicks would hit a closed pool; a redirect served after the drain can still lose its click |
 | `PageRequest` in links' domain | Moved to `shared/pagination/page-request.ts` with `toOffset()` | Two repository contracts use it; analytics must not import links' domain |
@@ -17,10 +17,10 @@ Status: implemented. Owner module: `analytics`.
 The `analytics` module records a click for every successful redirect and
 serves per-link analytics to the link's owner. It learns about redirects only
 through the `LinkRedirectedEvent` published by `links`. It never reads the
-`links` table: ownership is checked through `links`' public `GetLinkUseCase`.
+`links` table: ownership is checked through `links`' public `LinksApi`.
 
 **Prerequisites:** [3-links.md](3-links.md) — `LinkRedirectedEvent`,
-`GetLinkUseCase` (exported), `InProcessEventBus`, `PaginationQuery`,
+`LinksApi` (exported), `InProcessEventBus`, `PaginationQuery`,
 `API_PREFIX`. [2-users-auth.md](2-users-auth.md) — `JwtAuthGuard`,
 `@CurrentUser()`.
 
@@ -198,7 +198,7 @@ Delivery guarantee: **best-effort, at most once** in the MVP.
 
 ## 8. Security checklist
 
-- [x] Analytics route behind `JwtAuthGuard`; ownership via `GetLinkUseCase`
+- [x] Analytics route behind `JwtAuthGuard`; ownership via `LinksApi`
 - [x] Other users' links answer 404, not 403
 - [x] No IP address stored; referrer reduced to its origin
 - [x] Header values size-bounded before insert

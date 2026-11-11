@@ -3,7 +3,7 @@ import { LinkNotFoundError } from '../../domain/errors/link-not-found.error';
 import { LinkRepository } from '../../domain/repositories/link.repository';
 import { OwnedLinkInput } from '../models/link-inputs';
 
-// Also the links module's public API: analytics uses it to check ownership.
+// Exposed to other modules only through LinksApi.assertOwnership.
 export class GetLinkUseCase {
   constructor(private readonly linkRepository: LinkRepository) {}
 
