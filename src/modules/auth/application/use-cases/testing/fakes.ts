@@ -1,8 +1,9 @@
+import { TransactionRunner } from '../../../../../shared/database/transaction-runner';
+import { UsersApi } from '../../../../users/application/contracts/users-api';
+import { UserSummary } from '../../../../users/application/models/user-summary';
 import { RefreshToken } from '../../../domain/entities/refresh-token.entity';
-import { User } from '../../../domain/entities/user.entity';
+import { CredentialRepository } from '../../../domain/repositories/credential.repository';
 import { RefreshTokenRepository } from '../../../domain/repositories/refresh-token.repository';
-import { UserRepository } from '../../../domain/repositories/user.repository';
-import { Email } from '../../../domain/value-objects/email.vo';
 import { PasswordHasher } from '../../contracts/password-hasher';
 import { TokenIssuer } from '../../contracts/token-issuer';
 import { AuthSessionIssuer } from '../../services/auth-session-issuer';
@@ -10,18 +11,32 @@ import { AuthSessionIssuer } from '../../services/auth-session-issuer';
 export const REFRESH_TOKEN_TTL_DAYS = 7;
 export const ISSUED_ACCESS_TOKEN = { accessToken: 'jwt', expiresIn: '15m' };
 
-export const createUser = (passwordHash = 'stored-hash'): User =>
-  new User(
-    'user-id',
-    Email.create('user@example.com'),
-    passwordHash,
-    new Date('2026-01-01T00:00:00Z'),
-  );
+export const USER_SUMMARY: UserSummary = {
+  id: 'user-id',
+  email: 'user@example.com',
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+};
 
-export const createUserRepositoryMock = (): jest.Mocked<UserRepository> => ({
+export const createUsersApiMock = (): jest.Mocked<UsersApi> => ({
   create: jest.fn(),
   findByEmail: jest.fn(),
 });
+
+export const createCredentialRepositoryMock =
+  (): jest.Mocked<CredentialRepository> => ({
+    create: jest.fn(),
+    findPasswordHash: jest.fn(),
+  });
+
+// Runs the work inline (spied, so tests can assert it was used); atomicity
+// itself is the database's job and is covered by e2e.
+export const createTransactionRunnerMock = (): TransactionRunner => {
+  const transactionRunner: TransactionRunner = {
+    runInTransaction: (work) => work(),
+  };
+  jest.spyOn(transactionRunner, 'runInTransaction');
+  return transactionRunner;
+};
 
 export const createPasswordHasherMock = (): jest.Mocked<PasswordHasher> => ({
   hash: jest.fn(),

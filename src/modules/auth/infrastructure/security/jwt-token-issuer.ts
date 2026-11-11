@@ -5,7 +5,7 @@ import { EnvironmentVariables } from '../../../../shared/config/env.validation';
 import { TokenIssuer } from '../../application/contracts/token-issuer';
 import { AccessToken } from '../../application/models/access-token';
 
-// Secret, issuer, audience and expiry are set once on JwtModule in users.module.ts.
+// Secret, issuer, audience and expiry are set once on JwtModule in auth.module.ts.
 @Injectable()
 export class JwtTokenIssuer implements TokenIssuer {
   constructor(

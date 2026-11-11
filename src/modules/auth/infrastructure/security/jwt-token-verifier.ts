@@ -7,7 +7,7 @@ interface AccessTokenPayload {
   sub?: unknown;
 }
 
-// Secret, issuer and audience come from JwtModule's verifyOptions in users.module.ts;
+// Secret, issuer and audience come from JwtModule's verifyOptions in auth.module.ts;
 // expiry is checked by default.
 @Injectable()
 export class JwtTokenVerifier implements TokenVerifier {

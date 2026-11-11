@@ -5,6 +5,6 @@ export const USER_REPOSITORY = Symbol('USER_REPOSITORY');
 
 export interface UserRepository {
   /** @throws EmailAlreadyRegisteredError when the email is taken (enforced by the DB unique constraint). */
-  create(email: Email, passwordHash: string): Promise<User>;
+  create(email: Email): Promise<User>;
   findByEmail(email: Email): Promise<User | null>;
 }

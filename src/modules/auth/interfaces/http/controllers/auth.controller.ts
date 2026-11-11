@@ -40,7 +40,7 @@ export class AuthController {
   async register(
     @Body() credentials: CredentialsRequest,
   ): Promise<UserResponse> {
-    return UserResponse.fromUser(
+    return UserResponse.fromUserSummary(
       await this.registerUserUseCase.execute(credentials),
     );
   }

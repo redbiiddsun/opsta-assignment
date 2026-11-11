@@ -111,7 +111,7 @@ interfaces/http/
   dto/update-link.request.ts
   dto/link.response.ts                 includes shortUrl
   dto/link-page.response.ts
-links.module.ts                        imports UsersModule; exports GetLinkUseCase
+links.module.ts                        imports AuthModule; exports GetLinkUseCase
 
 shared/events/
   event-publisher.ts                   EventPublisher { publish(event) } + EVENT_PUBLISHER token

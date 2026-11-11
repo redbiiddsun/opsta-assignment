@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../../shared/database/prisma.service';
+import { PrismaTransactionContext } from '../../../../shared/database/prisma-transaction-context';
 import {
   Prisma,
   User as UserRecord,
@@ -16,21 +16,17 @@ const isUniqueConstraintViolation = (error: unknown): boolean =>
   error.code === UNIQUE_CONSTRAINT_VIOLATION;
 
 const toEntity = (record: UserRecord): User =>
-  new User(
-    record.id,
-    Email.create(record.email),
-    record.passwordHash,
-    record.createdAt,
-  );
+  new User(record.id, Email.create(record.email), record.createdAt);
 
 @Injectable()
 export class PrismaUserRepository implements UserRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly database: PrismaTransactionContext) {}
 
-  async create(email: Email, passwordHash: string): Promise<User> {
+  // `db` joins the caller's transaction when there is one (auth's register).
+  async create(email: Email): Promise<User> {
     try {
-      const record = await this.prisma.user.create({
-        data: { email: email.toString(), passwordHash },
+      const record = await this.database.db.user.create({
+        data: { email: email.toString() },
       });
       return toEntity(record);
     } catch (error) {
@@ -43,7 +39,7 @@ export class PrismaUserRepository implements UserRepository {
   }
 
   async findByEmail(email: Email): Promise<User | null> {
-    const record = await this.prisma.user.findUnique({
+    const record = await this.database.db.user.findUnique({
       where: { email: email.toString() },
     });
     return record ? toEntity(record) : null;
