@@ -3,11 +3,8 @@ import { HttpStatus, INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
-import {
-  API_PREFIX,
-  configureApp,
-  SWAGGER_PATH,
-} from './../src/shared/http/configure-app';
+import { API_PREFIX } from './../src/shared/http/api-prefix';
+import { configureApp, SWAGGER_PATH } from './../src/shared/http/configure-app';
 
 describe('App infrastructure (e2e)', () => {
   let app: INestApplication<App>;

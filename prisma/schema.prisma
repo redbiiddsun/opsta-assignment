@@ -23,6 +23,7 @@ model User {
 
   credential    Credential?
   refreshTokens RefreshToken[]
+  links         Link[]
 
   @@map("users")
 }
@@ -52,4 +53,22 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+// Owned by the links module.
+model Link {
+  id             String    @id @default(uuid()) @db.Uuid
+  ownerId        String    @map("owner_id") @db.Uuid
+  // Random code or custom alias: one namespace, case-sensitive.
+  shortCode      String    @unique @map("short_code") @db.VarChar(32)
+  destinationUrl String    @map("destination_url") @db.VarChar(2048)
+  isActive       Boolean   @default(true) @map("is_active")
+  expiresAt      DateTime? @map("expires_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
+  @@map("links")
 }

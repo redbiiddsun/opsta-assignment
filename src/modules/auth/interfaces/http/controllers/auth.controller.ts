@@ -18,6 +18,7 @@ import { AuthSessionResponse } from '../dto/auth-session.response';
 import { CredentialsRequest } from '../dto/credentials.request';
 import { RefreshTokenRequest } from '../dto/refresh-token.request';
 import { UserResponse } from '../dto/user.response';
+import { API_PREFIX } from '../../../../../shared/http/api-prefix';
 
 const AUTH_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
 
@@ -25,7 +26,7 @@ const AUTH_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
 @ApiBadRequestResponse({ description: 'Invalid request body' })
 @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded' })
 @Throttle(AUTH_THROTTLE)
-@Controller('auth')
+@Controller(`${API_PREFIX}/auth`)
 export class AuthController {
   constructor(
     private readonly registerUserUseCase: RegisterUserUseCase,

@@ -58,6 +58,7 @@ Prisma's install scripts; `@scarf/scarf` telemetry is denied.
 | `JWT_ISSUER` | required | auth |
 | `JWT_AUDIENCE` | required | auth |
 | `REFRESH_TOKEN_TTL_DAYS` | integer ≥ 1, default `7` | auth |
+| `PUBLIC_BASE_URL` | http(s) URL, default `http://localhost:3000` | links (`shortUrl`) |
 | `POSTGRES_USER` / `_PASSWORD` / `_DB` / `_PORT` | compose only; not read by the app | docker-compose |
 
 - `.env.example` — every variable above with placeholder values only.
@@ -73,8 +74,11 @@ Prisma's install scripts; `@scarf/scarf` telemetry is denied.
   Unknown errors become a generic 500 — no stack traces, no SQL/Prisma messages.
 - `src/shared/http/configure-app.ts` — `configureApp(app)`, called by
   `main.ts` **and e2e tests** so tests hit the same routes as production:
-  - `setGlobalPrefix('api/v1')` (the redirect route `/:shortCode` is excluded
-    when `links` lands)
+  - Swagger setup only. There is **no global prefix**: each API controller
+    uses `@Controller(\`${API_PREFIX}/...\`)` (`shared/http/api-prefix.ts`),
+    so the public redirect `GET /:shortCode` can sit at the root. Nest's
+    `setGlobalPrefix` `exclude` matches by path pattern, and excluding
+    `:shortCode` also stripped the prefix from `GET /links`.
   - Swagger at `/api/docs` with a bearer auth scheme
 - `src/app.module.ts` — imports `ConfigModule` (global, validated),
   `PrismaModule`, `ThrottlerModule` (100 req/min default; routes tighten with

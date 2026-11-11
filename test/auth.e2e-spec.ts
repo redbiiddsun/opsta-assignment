@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
-import { API_PREFIX, configureApp } from '../src/shared/http/configure-app';
+import { API_PREFIX } from '../src/shared/http/api-prefix';
+import { configureApp } from '../src/shared/http/configure-app';
 
 const REGISTER_PATH = `/${API_PREFIX}/auth/register`;
 const LOGIN_PATH = `/${API_PREFIX}/auth/login`;

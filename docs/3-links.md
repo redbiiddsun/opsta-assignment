@@ -1,6 +1,18 @@
 # Links — Implementation Plan
 
-Status: planned. Owner module: `links`.
+Status: implemented. Owner module: `links`.
+
+## Changes made during implementation
+
+| Plan | Built | Reason |
+|------|-------|--------|
+| `setGlobalPrefix` with `exclude: [':shortCode']` | No global prefix; API controllers use `` `${API_PREFIX}/...` `` | Nest matches `exclude` as a path pattern against every route, so `:shortCode` also excluded `GET /links` (caught by e2e: 404) |
+| `repo.update(link: Link)` | `repo.update(id, changes: LinkChanges)` | Writes only the provided fields; no need to rebuild the whole entity |
+| Alias regex in the DTO and the value object | DTO checks `IsString` + `MaxLength(32)`; the rule lives only in `ShortCode` | One source of truth; the domain error already gives a 400 |
+| `IsISO8601` for `expiresAt` | `@Type(() => Date)` + `IsDate` | The use case gets a real `Date`; invalid dates are still a 400 |
+| `DestinationUrl` checks protocol + length | Also rejects embedded credentials (`https://bank.com@evil.com`) | Classic phishing disguise for a shortener |
+| `static eventName` | `static EVENT_NAME` + instance `eventName` | Subscribers name the event by class (`subscribe(LinkRedirectedEvent, …)`); the bus routes instances by `eventName` |
+| `migrate dev --name add_links` | Migration generated with `migrate diff`, applied with `migrate deploy` | `migrate dev` wants a reset because `init_users` was edited after it was applied (pre-existing) |
 
 The `links` module owns the short-link lifecycle (create, list, read, update,
 delete), short-code generation and the public redirect. It publishes a
@@ -21,7 +33,7 @@ In scope:
 - `GET    /api/v1/links/:id` — get one owned link
 - `PATCH  /api/v1/links/:id` — update destination, active flag, expiry
 - `DELETE /api/v1/links/:id` — delete
-- `GET    /:shortCode` — public **302** redirect (outside the `/api/v1` prefix)
+- `GET    /:shortCode` — public **302** redirect (at the root, no `/api/v1`)
 - `LinkRedirected` event + a minimal in-process event bus in `shared/events`
 - A public module API for `analytics` to check link ownership
 
@@ -66,7 +78,7 @@ model Link {
 `User` gets the back-relation field `links Link[]`. This is a schema-level
 foreign key only; the users module never reads links.
 
-- Migration: `npx prisma migrate dev --name add_links`.
+- Migration: `20261111140000_add_links`.
 - `short_code` uniqueness is enforced by the DB unique index (which also
   serves redirect lookups). There is no check-then-insert: Prisma `P2002` on
   `short_code` is mapped to `ShortCodeTakenError` in the repository.
@@ -94,7 +106,8 @@ domain/
 application/
   contracts/short-code-generator.ts    ShortCodeGenerator { generate() } + token
   events/link-redirected.event.ts      public event contract (analytics imports it)
-  models/                              create/update inputs, LinkPage
+  models/link-inputs.ts                use-case inputs
+  models/link-page.ts                  { items, page, limit, total }
   use-cases/create-link.use-case.ts
   use-cases/list-links.use-case.ts
   use-cases/get-link.use-case.ts       also the public API for analytics
@@ -114,10 +127,13 @@ interfaces/http/
 links.module.ts                        imports AuthModule; exports GetLinkUseCase
 
 shared/events/
+  domain-event.ts                      DomainEvent, DomainEventType, DomainEventHandler
   event-publisher.ts                   EventPublisher { publish(event) } + EVENT_PUBLISHER token
-  in-process-event-bus.ts              publish + subscribe; handler errors logged, not rethrown
+  in-process-event-bus.ts              publish + subscribe(EventClass, handler); setImmediate;
+                                       handler errors logged, not rethrown
   events.module.ts                     @Global, binds EVENT_PUBLISHER → InProcessEventBus
 shared/http/
+  api-prefix.ts                        API_PREFIX = 'api/v1', used by each API controller
   pagination.query.ts                  page ≥ 1, limit 1–100 (default 20); reused by analytics
 ```
 
@@ -129,7 +145,7 @@ export interface LinkRepository {
   findById(id: string): Promise<Link | null>;
   findByShortCode(shortCode: string): Promise<Link | null>;
   listByOwner(ownerId: string, page: PageRequest): Promise<{ items: Link[]; total: number }>;
-  update(link: Link): Promise<Link>;             // throws LinkNotFoundError
+  update(id: string, changes: LinkChanges): Promise<Link>; // only given fields; throws LinkNotFoundError
   delete(id: string): Promise<void>;             // throws LinkNotFoundError
 }
 
@@ -142,7 +158,8 @@ export interface EventPublisher {
 }
 
 export class LinkRedirectedEvent implements DomainEvent {
-  static readonly eventName = 'links.link-redirected';
+  static readonly EVENT_NAME = 'links.link-redirected';
+  readonly eventName = LinkRedirectedEvent.EVENT_NAME;
   constructor(
     readonly linkId: string,
     readonly occurredAt: Date,
@@ -221,16 +238,14 @@ the entity is tested with plain dates — no clock abstraction.
 
 ## 6. Redirect routing
 
-`configureApp` excludes the redirect from the global prefix:
-
-```ts
-app.setGlobalPrefix(API_PREFIX, {
-  exclude: [{ path: ':shortCode', method: RequestMethod.GET }],
-});
-```
+There is no global prefix. API controllers declare it themselves —
+`@Controller(\`${API_PREFIX}/links\`)` — and `RedirectController` uses
+`@Controller()`, so it serves `GET /:shortCode` at the root.
 
 - The route is one path segment, so it can't shadow `/api/v1/...` or
   `/api/docs`.
+- Codes that can't exist (`favicon.ico`, anything with `.` or `/`) are a
+  404 without a DB query.
 - Reserved aliases (rejected at creation): `api`. Add more here only when a
   new top-level route needs one.
 - Redirects use the global throttle (100/min per IP). Raising it for redirect
@@ -280,7 +295,10 @@ sequenceDiagram
 | `expiresAt` (optional) | `IsISO8601` → `Date`; future check in the use case (needs "now") |
 | `isActive` (update) | `IsBoolean` |
 | `:id` | `ParseUUIDPipe` → bad UUID is 400 |
-| `page`, `limit` | `PaginationQuery`: `IsInt`, `page ≥ 1`, `1 ≤ limit ≤ 100` |
+| `page`, `limit` | `PaginationQuery`: `IsInt`, `1 ≤ page ≤ 10000`, `1 ≤ limit ≤ 100` |
+
+`null` is accepted only where it means something (`expiresAt` on update clears the
+expiry); elsewhere optional fields use `IsOptionalButNotNull`, so `null` → 400.
 
 Unknown fields → 400 (`forbidNonWhitelisted`). An empty PATCH body is a valid
 no-op that returns the link.
@@ -291,14 +309,14 @@ existing random code.
 
 ## 9. Security checklist
 
-- [ ] Only `http`/`https` destinations; URL parsed, not regex-matched
-- [ ] Every `/links` route behind `JwtAuthGuard`; ownership checked in use cases
-- [ ] Other users' links answer 404, not 403
-- [ ] Unknown / inactive / expired codes give identical 404s
-- [ ] `@Throttle({ default: { limit: 30, ttl: 60_000 } })` on `POST /links`
-- [ ] `shortUrl` built from `PUBLIC_BASE_URL`, never from the `Host` header
-- [ ] Redirect event has no IP and no headers beyond referrer + user agent
-- [ ] Destination URLs are not logged
+- [x] Only `http`/`https` destinations; URL parsed, not regex-matched
+- [x] Every `/links` route behind `JwtAuthGuard`; ownership checked in use cases
+- [x] Other users' links answer 404, not 403
+- [x] Unknown / inactive / expired codes give identical 404s
+- [x] `@Throttle({ default: { limit: 30, ttl: 60_000 } })` on `POST /links`
+- [x] `shortUrl` built from `PUBLIC_BASE_URL`, never from the `Host` header
+- [x] Redirect event has no IP and no headers beyond referrer + user agent
+- [x] Destination URLs are not logged
 
 ## 10. Tests
 
@@ -335,21 +353,22 @@ dates).
 
 ## 11. Implementation order
 
-1. Add `nanoid@^3`, `PUBLIC_BASE_URL` env var.
-2. `Link` model + `add_links` migration.
-3. `shared/events` bus + `shared/http/pagination.query.ts` (+ unit tests).
-4. Domain → application (+ unit tests) → infrastructure → interfaces.
-5. Prefix exclusion in `configureApp`; register `LinksModule` and
-   `EventsModule` in `AppModule`.
-6. E2E tests; Swagger decorators (`@ApiBearerAuth` on `/links`, redirect
-   documented as public 302/404).
-7. Update README (endpoints, env var, event delivery guarantee).
+1. ~~Add `nanoid@^3`, `PUBLIC_BASE_URL` env var.~~
+2. ~~`Link` model + `add_links` migration.~~
+3. ~~`shared/events` bus + `shared/http/pagination.query.ts` (+ unit tests).~~
+4. ~~Domain → application (+ unit tests) → infrastructure → interfaces.~~
+5. ~~Per-controller `API_PREFIX`; register `LinksModule` and `EventsModule`
+   in `AppModule`.~~
+6. ~~E2E tests; Swagger decorators (`@ApiBearerAuth` on `/links`, redirect
+   documented as public 302/404).~~
+7. Update README (endpoints, env var, event delivery guarantee) — pending
+   the README rewrite (it is still the Nest starter).
 8. Review loop: tech-lead agent review → developer agent fixes.
 
 ## 12. Verification
 
 ```bash
-npx prisma migrate dev --name add_links
+npx prisma migrate deploy
 npx prisma generate
 npm run lint && npm run build
 npm test
