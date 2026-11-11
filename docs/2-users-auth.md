@@ -25,6 +25,9 @@ Changes made during implementation:
 | `@CurrentUser('id')` | `@CurrentUser()` → `AuthenticatedUser { id }` | One field; a field argument adds nothing yet |
 | Separate Prisma integration suite | Covered by e2e | The duplicate-email e2e test goes through the real repository and the DB unique constraint |
 | `JWT_EXPIRES_IN` non-empty | Must match `^[1-9]\d*(ms\|s\|m\|h\|d)$` | A bad value would otherwise only fail at the first login; the unit is required because a bare number would be read as milliseconds |
+| Refresh tokens out of scope | Added: opaque, rotated, single-use (§6) | Without them users re-log in every 15 minutes and logout can't end a session on the server |
+| Token families + reuse detection | Not added: a revoked token is just rejected | Keeps the MVP small; see §6 trade-offs for what this gives up |
+| `AccessTokenResponse` | `AuthSessionResponse` | Login and refresh both return the access + refresh token pair |
 
 ## 1. Scope
 
@@ -32,11 +35,15 @@ In scope:
 
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
-- JWT access token
+- `POST /api/v1/auth/refresh` — rotate a refresh token into a new token pair
+- `POST /api/v1/auth/logout` — revoke the session behind a refresh token
+- JWT access token + opaque refresh token with rotation
 - `JwtAuthGuard` and `@CurrentUser()` exported for `links` / `analytics`
 
-Out of scope (known limitations): refresh tokens, logout/revocation, email
-verification, password reset, `/me`, roles.
+Out of scope (known limitations): revoking access tokens before they expire
+(logout ends the refresh token; the current access token lives out its
+15 minutes), "log out everywhere", cleanup of expired `refresh_tokens` rows,
+email verification, password reset, `/me`, roles.
 
 ## 2. New dependencies
 
@@ -45,7 +52,9 @@ verification, password reset, `/me`, roles.
 | `@nestjs/jwt` | Sign / verify JWT |
 | `argon2` | Password hashing (required). Its install script is approved in `allowScripts` so it can build where no prebuilt binary exists |
 
-Uses `JWT_*` variables defined in setup-infrastructure §4.
+Uses the `JWT_*` and `REFRESH_TOKEN_TTL_DAYS` variables defined in
+setup-infrastructure §4. Refresh tokens need no new package: `node:crypto`
+provides the random bytes and SHA-256.
 
 ## 3. Persistence
 
@@ -57,36 +66,67 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  refreshTokens RefreshToken[]
+
   @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")   // SHA-256; the token itself is never stored
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }
 ```
 
-- Migration: `npx prisma migrate dev --name init_users`.
+- Migrations: `init_users`, then `add_refresh_tokens`.
 - Email uniqueness is enforced by the DB constraint. There is no
   "check-then-insert" in the application — that races. Prisma error `P2002`
   is mapped to a domain error in the repository.
+- `refresh_tokens.token_hash` is unique so a token is found by its hash in
+  one indexed lookup. Deleting a user cascades to their refresh tokens.
+- Rows are revoked, never deleted. Expired and revoked rows accumulate; a
+  periodic cleanup job is a known limitation.
 
 ## 4. Module layout (`src/modules/users/`)
 
 ```text
 domain/
   entities/user.entity.ts             User { id, email: Email, passwordHash, createdAt }
+  entities/refresh-token.entity.ts    RefreshToken { id, userId, expiresAt, revokedAt }
+                                      + isRevoked(), isExpired(now)
   value-objects/email.vo.ts           trim + lowercase + format check
   repositories/user.repository.ts     UserRepository + USER_REPOSITORY token
+  repositories/refresh-token.repository.ts  RefreshTokenRepository + token
   errors/
     invalid-email.error.ts            (kind: validation)
     email-already-registered.error.ts (kind: conflict)
     invalid-credentials.error.ts      (kind: unauthorized)
+    invalid-refresh-token.error.ts    (kind: unauthorized)
 application/
   contracts/password-hasher.ts        PasswordHasher { hash, verify } + token
   contracts/token-issuer.ts           TokenIssuer { issue(userId) } + token
   contracts/token-verifier.ts         TokenVerifier { verify(token) → userId | null } + token
   models/credentials.ts               { email, password } use-case input
   models/access-token.ts              { accessToken, expiresIn }
+  models/auth-session.ts              AccessToken + { refreshToken, refreshTokenExpiresAt }
+  services/auth-session-issuer.ts     builds the token pair: start / rotate;
+                                      hashRefreshToken()
   use-cases/register-user.use-case.ts
   use-cases/login.use-case.ts
+  use-cases/refresh-session.use-case.ts
+  use-cases/logout.use-case.ts
 infrastructure/
   persistence/prisma-user.repository.ts   P2002 → EmailAlreadyRegisteredError; record → entity
+  persistence/prisma-refresh-token.repository.ts  rotate = one transaction with a
+                                          conditional revoke (race guard)
   security/argon2-password-hasher.ts      argon2id, library defaults; dummy hash for null
   security/jwt-token-issuer.ts            signAsync({ sub }); options come from JwtModule
   security/jwt-token-verifier.ts          verifyAsync → sub, any failure → null
@@ -94,7 +134,8 @@ interfaces/http/
   controllers/auth.controller.ts          thin: DTO → use case → response DTO
   dto/credentials.request.ts
   dto/user.response.ts
-  dto/access-token.response.ts
+  dto/refresh-token.request.ts            { refreshToken } for refresh + logout
+  dto/auth-session.response.ts
   models/authenticated-user.ts            { id }
   models/authenticated-request.ts         express Request + user
   guards/jwt-auth.guard.ts                public API for other modules
@@ -123,7 +164,19 @@ export interface TokenIssuer {
 export interface TokenVerifier {
   verify(accessToken: string): Promise<string | null>; // userId, or null for any invalid token
 }
+
+export interface RefreshTokenRepository {
+  create(refreshToken: NewRefreshToken): Promise<void>;
+  findByTokenHash(tokenHash: string): Promise<RefreshToken | null>;
+  rotate(currentId: string, next: NewRefreshToken): Promise<boolean>; // false: already revoked
+  revoke(id: string): Promise<void>; // no-op if already revoked
+}
 ```
+
+`AuthSessionIssuer` is a plain class, not a contract: login and refresh both
+need "issue access token + build refresh token", and the only technical
+dependency it adds is `node:crypto` (stdlib), so there is nothing to swap
+out. Unit tests use the real issuer with a mocked repository.
 
 Why `PasswordHasher`, `TokenIssuer` and `TokenVerifier` are abstractions: they keep the use
 cases and the guard free of Argon2 and JWT, and unit tests can use fakes (AGENTS.md §3.2,
@@ -182,9 +235,48 @@ sequenceDiagram
 
 | Case | Result |
 |------|--------|
-| Success | **200** `{ accessToken, tokenType: 'Bearer', expiresIn }` |
+| Success | **200** — see next row |
+| Success (body) | `{ accessToken, tokenType, expiresIn, refreshToken, refreshTokenExpiresAt }` |
 | Unknown email | **401** `"Invalid email or password"` |
 | Wrong password | **401** `"Invalid email or password"` (identical) |
+
+### RefreshSession
+
+1. `repo.findByTokenHash(sha256(token))`; missing → `InvalidRefreshTokenError`.
+2. Revoked or expired → 401.
+3. `repo.rotate(id, next)` in one transaction: revoke the current row only
+   if `revoked_at IS NULL`, then insert the successor. If the conditional
+   update matched nothing, a concurrent request used the token first → 401.
+
+The access token is signed **before** the refresh token is committed (in
+login and refresh): a signing failure after the commit would revoke the
+client's refresh token without handing back its replacement.
+
+| Case | Result |
+|------|--------|
+| Success | **200** new pair (same shape as login); the sent token is revoked |
+| Unknown / expired / revoked | **401** `"Invalid refresh token"` (identical) |
+| Missing / empty / non-string token | **400** |
+
+### Logout
+
+Find by hash → `revoke(id)` → **204**. Unknown tokens also get 204, so
+logout can't be used to check whether a token exists. Other logins (other
+devices) are unaffected.
+
+Accepted trade-offs:
+
+- **No reuse detection.** A rotated token coming back is only rejected; its
+  successor stays valid. If an attacker steals a refresh token and rotates it
+  before the owner does, the attacker keeps the session until it expires or
+  is logged out, and the owner just sees a 401. The upgrade path is token
+  families: a `family_id` shared by every rotation of one login, and reuse of
+  a revoked token revokes the whole family (OAuth 2.0 Security BCP, RFC 9700).
+- Two concurrent refreshes of the same token (e.g. two tabs): one wins, the
+  other gets 401 and the session continues on the winner's token.
+- Refresh tokens go in the JSON body, not an `HttpOnly` cookie: this is an
+  API with no browser frontend, so there is no cookie/CSRF setup to justify.
+  A browser client would move them into a cookie.
 
 Accepted trade-off: 409 on register reveals that an email exists. Fixing this
 needs email verification, which is out of MVP scope.
@@ -195,6 +287,7 @@ needs email verification, which is out of MVP scope.
 |-------|-------|
 | `email` | `IsEmail`, `MaxLength(254)` |
 | `password` | `IsString`, `MinLength(8)`, `MaxLength(128)` — the cap stops very long inputs being used to make hashing expensive |
+| `refreshToken` | `IsString`, `IsNotEmpty`, `MaxLength(128)` (issued tokens are 43 chars) |
 
 Unknown fields → 400 (`forbidNonWhitelisted`). One `CredentialsRequest`
 serves both routes. `IsEmail` rejects surrounding whitespace, so over HTTP
@@ -223,6 +316,10 @@ the `Email` value object's normalization only changes casing.
 - [x] `@Throttle({ default: { limit: 5, ttl: 60_000 } })` on register and login
 - [x] Never log passwords, tokens, or the `Authorization` header
 - [x] JWT issuer, audience and expiry are all verified
+- [x] Refresh tokens: 256 random bits, stored only as SHA-256, single-use
+- [x] Rotation is race-safe (conditional update in a transaction)
+- [x] Refresh/logout share the auth throttle (5/min per route)
+- [x] Refresh tokens never logged
 
 ## 10. Tests
 
@@ -232,7 +329,12 @@ the `Email` value object's normalization only changes casing.
 - `RegisterUserUseCase` — hashes the password, maps duplicates to conflict,
   output has no hash
 - `LoginUseCase` — unknown email and wrong password give the same error;
-  verify still runs for an unknown email; token issued on success
+  verify still runs for an unknown email; on success the access token is
+  returned and a refresh token is stored as its hash
+- `RefreshSessionUseCase` — rotation stores the new hash; unknown, expired
+  and revoked tokens rejected without rotating; losing the rotation race is
+  rejected
+- `LogoutUseCase` — known token is revoked; unknown token is a no-op
 - `JwtAuthGuard` (fake verifier) — missing header, non-bearer scheme, empty
   token, rejected token; valid token sets `request.user`
 - `JwtTokenVerifier` — valid token returns `sub`; malformed, expired,
@@ -248,6 +350,11 @@ in for a repository integration suite:
   unknown field 400
 - login 200 with token · bad password and unknown email give the identical 401
 - 429 after 5 logins in a minute
+- refresh 200 with a new pair · reusing a rotated token 401 and its
+  successor keeps working · two concurrent refreshes of the same token
+  give exactly one 200 and one 401, and the winner's token keeps working
+  · logout 204 then refresh 401 · unknown token:
+  refresh 401, logout 204 · missing / empty / non-string token 400
 
 Each test uses a random email, so the suite runs against the dev database
 without truncating tables. A separate test database (setup §7) is not set up yet.
@@ -260,6 +367,8 @@ without truncating tables. A separate test database (setup §7) is not set up ye
 4. ~~E2E tests; Swagger decorators.~~ README auth section: pending the
    README rewrite (it is still the Nest starter).
 5. ~~Review loop: tech-lead agent review → developer agent fixes.~~
+6. ~~Refresh tokens: `add_refresh_tokens` migration, refresh/logout use
+   cases, e2e.~~
 
 ## 12. Verification
 
@@ -272,4 +381,5 @@ npm run test:e2e
 ```
 
 Manual check: open `/api/docs`, register, log in, then call a guarded route
-with and without the token.
+with and without the token. Refresh with the returned `refreshToken`, send
+the old one again (401), then confirm the new one is also rejected.

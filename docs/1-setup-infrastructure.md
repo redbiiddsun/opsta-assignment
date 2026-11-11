@@ -57,6 +57,7 @@ Prisma's install scripts; `@scarf/scarf` telemetry is denied.
 | `JWT_EXPIRES_IN` | default `15m` | users |
 | `JWT_ISSUER` | required | users |
 | `JWT_AUDIENCE` | required | users |
+| `REFRESH_TOKEN_TTL_DAYS` | integer ≥ 1, default `7` | users |
 | `POSTGRES_USER` / `_PASSWORD` / `_DB` / `_PORT` | compose only; not read by the app | docker-compose |
 
 - `.env.example` — every variable above with placeholder values only.

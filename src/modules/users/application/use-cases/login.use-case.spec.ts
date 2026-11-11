@@ -1,8 +1,11 @@
 import { InvalidCredentialsError } from '../../domain/errors/invalid-credentials.error';
+import { hashRefreshToken } from '../services/auth-session-issuer';
 import { LoginUseCase } from './login.use-case';
 import {
+  ISSUED_ACCESS_TOKEN,
+  createAuthSessionIssuer,
   createPasswordHasherMock,
-  createTokenIssuerMock,
+  createRefreshTokenRepositoryMock,
   createUser,
   createUserRepositoryMock,
 } from './testing/fakes';
@@ -13,38 +16,42 @@ describe('LoginUseCase', () => {
   const setup = () => {
     const userRepository = createUserRepositoryMock();
     const passwordHasher = createPasswordHasherMock();
-    const tokenIssuer = createTokenIssuerMock();
+    const refreshTokenRepository = createRefreshTokenRepositoryMock();
     const useCase = new LoginUseCase(
       userRepository,
       passwordHasher,
-      tokenIssuer,
+      createAuthSessionIssuer(refreshTokenRepository),
     );
-    return { userRepository, passwordHasher, tokenIssuer, useCase };
+    return { userRepository, passwordHasher, refreshTokenRepository, useCase };
   };
 
-  it('Given valid credentials, when logging in, then a token is issued for the user', async () => {
+  it('Given valid credentials, when logging in, then an access token and a new refresh token are issued', async () => {
     // Given
-    const { userRepository, passwordHasher, tokenIssuer, useCase } = setup();
+    const { userRepository, passwordHasher, refreshTokenRepository, useCase } =
+      setup();
     userRepository.findByEmail.mockResolvedValue(createUser('stored-hash'));
     passwordHasher.verify.mockResolvedValue(true);
-    const issuedToken = { accessToken: 'jwt', expiresIn: '15m' };
-    tokenIssuer.issue.mockResolvedValue(issuedToken);
 
     // When
-    const accessToken = await useCase.execute(credentials);
+    const session = await useCase.execute(credentials);
 
     // Then
     expect(passwordHasher.verify).toHaveBeenCalledWith(
       'stored-hash',
       'plain-password',
     );
-    expect(tokenIssuer.issue).toHaveBeenCalledWith('user-id');
-    expect(accessToken).toEqual(issuedToken);
+    expect(session).toMatchObject(ISSUED_ACCESS_TOKEN);
+    expect(refreshTokenRepository.create).toHaveBeenCalledWith({
+      userId: 'user-id',
+      tokenHash: hashRefreshToken(session.refreshToken),
+      expiresAt: session.refreshTokenExpiresAt,
+    });
   });
 
   it('Given an unknown email, when logging in, then the password is still verified and InvalidCredentialsError is thrown', async () => {
     // Given
-    const { userRepository, passwordHasher, tokenIssuer, useCase } = setup();
+    const { userRepository, passwordHasher, refreshTokenRepository, useCase } =
+      setup();
     userRepository.findByEmail.mockResolvedValue(null);
     passwordHasher.verify.mockResolvedValue(false);
 
@@ -53,12 +60,13 @@ describe('LoginUseCase', () => {
       InvalidCredentialsError,
     );
     expect(passwordHasher.verify).toHaveBeenCalledWith(null, 'plain-password');
-    expect(tokenIssuer.issue).not.toHaveBeenCalled();
+    expect(refreshTokenRepository.create).not.toHaveBeenCalled();
   });
 
   it('Given a wrong password, when logging in, then the same InvalidCredentialsError is thrown', async () => {
     // Given
-    const { userRepository, passwordHasher, tokenIssuer, useCase } = setup();
+    const { userRepository, passwordHasher, refreshTokenRepository, useCase } =
+      setup();
     userRepository.findByEmail.mockResolvedValue(createUser());
     passwordHasher.verify.mockResolvedValue(false);
 
@@ -66,6 +74,6 @@ describe('LoginUseCase', () => {
     await expect(useCase.execute(credentials)).rejects.toThrow(
       new InvalidCredentialsError(),
     );
-    expect(tokenIssuer.issue).not.toHaveBeenCalled();
+    expect(refreshTokenRepository.create).not.toHaveBeenCalled();
   });
 });

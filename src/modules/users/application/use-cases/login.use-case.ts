@@ -2,18 +2,18 @@ import { InvalidCredentialsError } from '../../domain/errors/invalid-credentials
 import { UserRepository } from '../../domain/repositories/user.repository';
 import { Email } from '../../domain/value-objects/email.vo';
 import { PasswordHasher } from '../contracts/password-hasher';
-import { TokenIssuer } from '../contracts/token-issuer';
-import { AccessToken } from '../models/access-token';
+import { AuthSession } from '../models/auth-session';
 import { Credentials } from '../models/credentials';
+import { AuthSessionIssuer } from '../services/auth-session-issuer';
 
 export class LoginUseCase {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly passwordHasher: PasswordHasher,
-    private readonly tokenIssuer: TokenIssuer,
+    private readonly authSessionIssuer: AuthSessionIssuer,
   ) {}
 
-  async execute({ email, password }: Credentials): Promise<AccessToken> {
+  async execute({ email, password }: Credentials): Promise<AuthSession> {
     const user = await this.userRepository.findByEmail(Email.create(email));
     // Verify even when the user is missing so both failures take the same time.
     const isPasswordValid = await this.passwordHasher.verify(
@@ -23,6 +23,6 @@ export class LoginUseCase {
     if (!user || !isPasswordValid) {
       throw new InvalidCredentialsError();
     }
-    return this.tokenIssuer.issue(user.id);
+    return this.authSessionIssuer.start(user.id);
   }
 }

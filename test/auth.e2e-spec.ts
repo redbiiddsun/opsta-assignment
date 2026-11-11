@@ -8,8 +8,15 @@ import { API_PREFIX, configureApp } from '../src/shared/http/configure-app';
 
 const REGISTER_PATH = `/${API_PREFIX}/auth/register`;
 const LOGIN_PATH = `/${API_PREFIX}/auth/login`;
+const REFRESH_PATH = `/${API_PREFIX}/auth/refresh`;
+const LOGOUT_PATH = `/${API_PREFIX}/auth/logout`;
 const AUTH_ROUTE_LIMIT = 5;
 const PASSWORD = 'correct-password';
+const INVALID_REFRESH_TOKEN_BODY = {
+  statusCode: HttpStatus.UNAUTHORIZED,
+  error: 'Unauthorized',
+  message: 'Invalid refresh token',
+};
 const INVALID_CREDENTIALS_BODY = {
   statusCode: HttpStatus.UNAUTHORIZED,
   error: 'Unauthorized',
@@ -26,6 +33,17 @@ describe('Auth (e2e)', () => {
     request(app.getHttpServer()).post(REGISTER_PATH).send(body);
   const login = (body: object) =>
     request(app.getHttpServer()).post(LOGIN_PATH).send(body);
+  const refresh = (refreshToken: unknown) =>
+    request(app.getHttpServer()).post(REFRESH_PATH).send({ refreshToken });
+  const logout = (refreshToken: string) =>
+    request(app.getHttpServer()).post(LOGOUT_PATH).send({ refreshToken });
+
+  const loginNewUser = async (): Promise<string> => {
+    const credentials = { email: uniqueEmail(), password: PASSWORD };
+    await register(credentials);
+    const response = await login(credentials);
+    return (response.body as { refreshToken: string }).refreshToken;
+  };
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -97,7 +115,7 @@ describe('Auth (e2e)', () => {
     },
   );
 
-  it('Given a registered user, when logging in with the right password, then it responds 200 with a bearer token', async () => {
+  it('Given a registered user, when logging in with the right password, then it responds 200 with a bearer token and a refresh token', async () => {
     // Given
     const email = uniqueEmail();
     await register({ email, password: PASSWORD });
@@ -111,6 +129,8 @@ describe('Auth (e2e)', () => {
       accessToken: expect.any(String),
       tokenType: 'Bearer',
       expiresIn: expect.any(String),
+      refreshToken: expect.any(String),
+      refreshTokenExpiresAt: expect.any(String),
     });
   });
 
@@ -146,4 +166,102 @@ describe('Auth (e2e)', () => {
     // Then
     expect(response.status).toBe(HttpStatus.TOO_MANY_REQUESTS);
   });
+
+  it('Given a refresh token from login, when refreshing, then it responds 200 with a new token pair', async () => {
+    // Given
+    const refreshToken = await loginNewUser();
+
+    // When
+    const response = await refresh(refreshToken);
+
+    // Then
+    expect(response.status).toBe(HttpStatus.OK);
+    expect(response.body).toEqual({
+      accessToken: expect.any(String),
+      tokenType: 'Bearer',
+      expiresIn: expect.any(String),
+      refreshToken: expect.any(String),
+      refreshTokenExpiresAt: expect.any(String),
+    });
+    expect((response.body as { refreshToken: string }).refreshToken).not.toBe(
+      refreshToken,
+    );
+  });
+
+  it('Given a refresh token that was already rotated, when it is reused, then it responds 401 and the rotated-to token keeps working', async () => {
+    // Given
+    const originalToken = await loginNewUser();
+    const rotated = await refresh(originalToken);
+    const rotatedToken = (rotated.body as { refreshToken: string })
+      .refreshToken;
+
+    // When
+    const reuse = await refresh(originalToken);
+    const afterReuse = await refresh(rotatedToken);
+
+    // Then
+    expect(reuse.status).toBe(HttpStatus.UNAUTHORIZED);
+    expect(reuse.body).toEqual(INVALID_REFRESH_TOKEN_BODY);
+    expect(afterReuse.status).toBe(HttpStatus.OK);
+  });
+
+  it('Given a refresh token, when it is refreshed twice concurrently, then one responds 200, the other 401, and the winning token keeps working', async () => {
+    // Given
+    const refreshToken = await loginNewUser();
+
+    // When
+    const responses = await Promise.all([
+      refresh(refreshToken),
+      refresh(refreshToken),
+    ]);
+    const winner = responses.find(({ ok }) => ok);
+    const winnerToken = (winner?.body as { refreshToken: string } | undefined)
+      ?.refreshToken;
+    const afterRace = await refresh(winnerToken);
+
+    // Then
+    expect(responses.map(({ status }) => status).sort((a, b) => a - b)).toEqual(
+      [HttpStatus.OK, HttpStatus.UNAUTHORIZED],
+    );
+    expect(afterRace.status).toBe(HttpStatus.OK);
+  });
+
+  it('Given a logged-in session, when logging out, then it responds 204 and the refresh token is rejected', async () => {
+    // Given
+    const refreshToken = await loginNewUser();
+
+    // When
+    const response = await logout(refreshToken);
+    const afterLogout = await refresh(refreshToken);
+
+    // Then
+    expect(response.status).toBe(HttpStatus.NO_CONTENT);
+    expect(afterLogout.status).toBe(HttpStatus.UNAUTHORIZED);
+  });
+
+  it('Given an unknown refresh token, when refreshing and logging out, then refresh responds 401 and logout still responds 204', async () => {
+    // When
+    const refreshResponse = await refresh('unknown-token');
+    const logoutResponse = await logout('unknown-token');
+
+    // Then
+    expect(refreshResponse.status).toBe(HttpStatus.UNAUTHORIZED);
+    expect(refreshResponse.body).toEqual(INVALID_REFRESH_TOKEN_BODY);
+    expect(logoutResponse.status).toBe(HttpStatus.NO_CONTENT);
+  });
+
+  it.each([
+    ['a missing token', undefined],
+    ['an empty token', ''],
+    ['a non-string token', 42],
+  ])(
+    'Given %s, when refreshing, then it responds 400',
+    async (_case, refreshToken) => {
+      // When
+      const response = await refresh(refreshToken);
+
+      // Then
+      expect(response.status).toBe(HttpStatus.BAD_REQUEST);
+    },
+  );
 });
