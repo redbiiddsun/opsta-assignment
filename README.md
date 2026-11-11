@@ -310,6 +310,9 @@ defaults.
 
 - `app` waits for Postgres to report healthy. It then applies migrations
   (`prisma migrate deploy`) and starts on `http://localhost:${PORT:-3000}`.
+  The `app` and `postgres` ports are bound to `127.0.0.1` only; other machines
+  reach the API through `web`, whose nginx sets `X-Forwarded-For` for the
+  rate limits.
 - App values come from `.env.example`, overridden by `.env` when it exists.
   Compose itself sets two: `DATABASE_URL` points at the `postgres` service,
   and `PORT` is fixed at `3000` inside the container. `PORT` in `.env` only
@@ -471,9 +474,10 @@ implementation":
   are never cleaned up.
 - Rate-limit counters are in memory per process. Multiple instances would
   need a shared store.
-- Behind the `web` nginx, the API sees nginx's IP, so rate limits are
-  shared by everyone using the web origin. Fixing it means trusting
-  `X-Forwarded-For` from the proxy only (`trust proxy`).
+- Per-client rate limits rely on nginx overwriting `X-Forwarded-For` and on
+  the API port being localhost-only. Callers on the host's loopback can still
+  spoof it, and everyone behind Docker Desktop's NAT shares one limit (they
+  all appear as the gateway address).
 - Click delivery is best-effort (see above). There are no time series, top
   referrers, unique visitors or bot filtering.
 - The short code can't be changed after creation. There is no link search

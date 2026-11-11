@@ -10,7 +10,9 @@ const API_VERSION = '1.0';
 // Behind the web container's nginx every request arrives from nginx's private
 // address, so rate limits would be shared by all visitors. Trusting
 // X-Forwarded-For from loopback/private hops only gives each visitor their own
-// limit, while a client on the public internet still can't spoof it.
+// limit. This is only safe because nginx overwrites X-Forwarded-For with the
+// address it saw and the API port is bound to localhost (docker-compose.yml);
+// any private-address client that reaches the API directly can spoof its IP.
 const TRUSTED_PROXIES = 'loopback, linklocal, uniquelocal';
 
 // App-level settings that can't be module providers. Shared by main.ts and
