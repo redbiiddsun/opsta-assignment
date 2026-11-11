@@ -1,4 +1,4 @@
-# URL Shortener API
+# URL Shortener System (with additional web interface)
 
 A small, production-minded URL shortener API built as a **modular monolith**
 with **Clean Architecture**. Users register, create short links (random codes
@@ -381,119 +381,9 @@ npm run lint         # eslint (with --fix)
 npm run build        # type-check + compile
 ```
 
-- **Unit tests** cover the value objects (email, destination URL, short code)
-  and the link expiry/activation and ownership rules. They also cover every
-  use case, including the short-code collision retry, refresh-token
-  rotation, and click normalization. The JWT verifier, the Argon2 hasher, the
-  event bus and the env validation have their own tests.
-- **E2E tests** cover these areas:
-  - auth flows, rate limiting, refresh reuse and concurrency
-  - link CRUD and ownership (404 for other users)
-  - redirects for active, inactive, expired and unknown codes
-  - click recording, analytics, cascade deletes, idempotent recording, and
-    persistence through `app.close()`
-- E2E tests run against the database in `DATABASE_URL`, using random emails
-  and aliases, so they don't need truncation. A separate test database is a
-  known limitation.
 - `test:e2e` sets `NODE_OPTIONS=--experimental-vm-modules`. Prisma 7 loads its
   query compiler with a dynamic `import()`, which Jest allows only with that
   flag.
-
-## Design decisions and trade-offs
-
-Each module has a detailed plan with its decisions and "changes made during
-implementation":
-[setup](docs/1-setup-infrastructure.md) ·
-[users & auth](docs/2-users-auth.md) ·
-[links](docs/3-links.md) ·
-[analytics](docs/4-analytics.md).
-
-**Short codes and aliases**
-
-- Random codes and aliases share one unique `short_code` column, so they
-  can never collide with each other.
-- A random-code collision is caught by the unique index and retried up to
-  3 times. With 62⁷ codes, a third collision means something is broken.
-- A taken alias is a 409, with no retry.
-
-**URL safety**
-
-- Destination URLs are parsed with the WHATWG `URL` parser, not a regex.
-  Only `http`/`https` are allowed.
-- URLs with embedded credentials (`https://bank.com@evil.com`) are rejected.
-- The stored URL is normalized.
-
-**404 instead of 403 for other users' links**
-
-- Another user's link returns 404, so link ids can't be probed.
-- Unknown, inactive and expired codes share one 404 body.
-
-**Event-driven click recording**
-
-- The redirect publishes `LinkRedirectedEvent` and returns 302 without
-  waiting.
-- Analytics records the click on the next tick. A failing analytics write
-  can't slow down or break redirects.
-- `links` never depends on `analytics`.
-- The publisher and subscriber are ports, so the in-process bus can later
-  be swapped for an outbox or a broker.
-
-**Delivery is best-effort (at most once)**
-
-- A click is lost if the process dies between the 302 and the insert.
-- On a clean shutdown the bus drains pending deliveries before Prisma
-  disconnects.
-- `click_events.id` = `eventId`, so moving to at-least-once delivery won't
-  double-count.
-- Durable delivery would need a Transactional Outbox, which is out of MVP
-  scope.
-
-**Privacy**
-
-- No IP address is stored.
-- The referrer is reduced to its origin, because its path and query can
-  carry personal data.
-- The user agent is capped at 512 characters.
-
-**Auth**
-
-- Stateless JWT access tokens (15 min) and opaque refresh tokens: 256 bits,
-  stored as SHA-256, single use.
-- Login checks the password even for an unknown email, so the timing
-  doesn't reveal which emails exist.
-- `auth` owns credentials, and `users` owns identity.
-
-**No global route prefix**
-
-- API controllers use `` `${API_PREFIX}/...` `` so that `GET /:shortCode` can
-  stay at the root.
-- Nest's `setGlobalPrefix({ exclude })` matches by path pattern.
-  Excluding `:shortCode` also stripped the prefix from `GET /links`.
-
-## Known limitations (No need to be perfect because it's POC)
-
-- The image is about 570 MB. Most of that is the Prisma CLI and engines,
-  which are kept so the container can run `migrate deploy` on start.
-  A separate migration job would allow a slimmer image.
-- No separate test database. E2E tests write to the dev database.
-- An access token stays valid until it expires (up to 15 min) after logout or
-  user deletion.
-- There is no "log out everywhere", and expired refresh tokens and old clicks
-  are never cleaned up.
-- Rate-limit counters are in memory per process. Multiple instances would
-  need a shared store.
-- Per-client rate limits rely on nginx overwriting `X-Forwarded-For` and on
-  the API port being localhost-only. Callers on the host's loopback can still
-  spoof it, and everyone behind Docker Desktop's NAT shares one limit (they
-  all appear as the gateway address).
-- Click delivery is best-effort (see above). There are no time series, top
-  referrers, unique visitors or bot filtering.
-- The short code can't be changed after creation. There is no link search
-  or bulk operations.
-- In this repo's local dev database, `prisma migrate dev` asks for a reset
-  because `init_users` was edited after it was applied. A fresh database is
-  unaffected. Later migrations were generated with `prisma migrate diff`
-  and applied with `migrate deploy`.
 
 ## AI-assisted development log
 
@@ -515,8 +405,9 @@ review loop defined in `AGENTS.md`.
    agent fixed the accepted findings. Then all checks ran again.
 5. _Sync docs:_ each plan gets a status line and a "changes made during
    implementation" table.
-6. _Security Audit_ after complete the whole project, make a security skill to scan all the code and a code smell that can lead to security concern, and after found some concern review by human and fix it.
-   **Representative prompts** (paraphrased):
+6. _Security Audit_: after complete the whole project, make a security skill to scan all the code and a code smell that can lead to security concern, and after found some concern review by human and fix it.
+
+**Example of prompts** : (Noted: We can prompt everything simple beacause we already have a fixed example and convention from the project skills and agant.md )
 
 - "Plan the links module and save it in docs/."
 - "Should auth and users be separate modules?" (We first kept them together.
@@ -524,22 +415,3 @@ review loop defined in `AGENTS.md`.
 - "Add full refresh-token support; add tables if needed and update the docs."
 - "Is this plan event-driven? What does the event help with? Who receives it?"
 - "Implement" (links, then analytics) · "Commit, then write the analytics plan."
-
-**How generated output was reviewed**
-
-- Every change was checked by actually running lint, build, unit and e2e
-  tests. Results were reported with real counts, never assumed.
-- Review findings were accepted or declined with reasons. For example, a
-  suggestion to put `node:crypto` behind a port was declined because it is
-  the standard library and there is nothing to swap.
-- Examples of bugs caught by tests or review before commit:
-  - The global-prefix exclude broke `GET /links`; e2e returned 404.
-  - `null` in a PATCH or POST body caused a 500; it now returns 400.
-  - A huge `?page=` caused a 500.
-  - A refresh-token rotation race, solved with a conditional update in a
-    transaction.
-  - The shutdown order dropped in-flight clicks. This now has a regression
-    test that fails if the order is reverted.
-- Pre-existing problems found along the way were reported and left for the
-  owner to decide, not silently "fixed". For example, the edited `init_users`
-  migration would need a destructive reset.
